@@ -1,0 +1,71 @@
+package co.com.ticketing.api;
+
+import org.springdoc.core.annotations.RouterOperation;
+import org.springdoc.core.annotations.RouterOperations;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.RouterFunctions;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+
+@Configuration
+public class RouterRest {
+    @RouterOperations({
+            // V1 Endpoints
+            @RouterOperation(
+                    path = "/api/v1/usecase/path",
+                    beanClass = HandlerV1.class,
+                    beanMethod = "listenGETUseCase",
+                    method = RequestMethod.GET
+            ),
+            @RouterOperation(
+                    path = "/api/v1/usecase/otherpath",
+                    beanClass = HandlerV1.class,
+                    beanMethod = "listenPOSTUseCase",
+                    method = RequestMethod.POST
+            ),
+            @RouterOperation(
+                    path = "/api/v1/otherusercase/path",
+                    beanClass = HandlerV1.class,
+                    beanMethod = "listenGETOtherUseCase",
+                    method = RequestMethod.GET
+            ),
+            // V2 Endpoints
+            @RouterOperation(
+                    path = "/api/v2/usecase/path",
+                    beanClass = HandlerV2.class,
+                    beanMethod = "listenGETUseCase",
+                    method = RequestMethod.GET
+            ),
+            @RouterOperation(
+                    path = "/api/v2/usecase/otherpath",
+                    beanClass = HandlerV2.class,
+                    beanMethod = "listenPOSTUseCase",
+                    method = RequestMethod.POST
+            ),
+            @RouterOperation(
+                    path = "/api/v2/otherusercase/path",
+                    beanClass = HandlerV2.class,
+                    beanMethod = "listenGETOtherUseCase",
+                    method = RequestMethod.GET
+            )
+    })
+    @Bean
+    public RouterFunction<ServerResponse> routerFunction(HandlerV1 handlerV1, HandlerV2 handlerV2) {
+        return RouterFunctions
+                .route()
+                .path("/api/v1", builder -> builder
+                        .GET("/usecase/path", handlerV1::listenGETUseCase)
+                        .POST("/usecase/otherpath", handlerV1::listenPOSTUseCase)
+                        .GET("/otherusercase/path", handlerV1::listenGETOtherUseCase)
+                )
+                .path("/api/v2", builder -> builder
+                        .GET("/usecase/path", handlerV2::listenGETUseCase)
+                        .POST("/usecase/otherpath", handlerV2::listenPOSTUseCase)
+                        .GET("/otherusercase/path", handlerV2::listenGETOtherUseCase)
+                )
+                .build();
+    }
+}
