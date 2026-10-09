@@ -68,7 +68,6 @@ public class SQSListener {
                 .queueUrl(properties.queueUrl())
                 .maxNumberOfMessages(properties.maxNumberOfMessages())
                 .waitTimeSeconds(properties.waitTimeSeconds())
-                .visibilityTimeout(properties.visibilityTimeoutSeconds())
                 .build();
     }
 

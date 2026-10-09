@@ -37,7 +37,6 @@ class SQSListenerTest {
                 "http://localhost:4566",
                 "http://localhost:4566/00000000000/queueName",
                 20,
-                30,
                 10,
                 1
         );

@@ -1,6 +1,7 @@
 package co.com.ticketing.sqs.listener.config;
 
 import co.com.ticketing.sqs.listener.helper.SQSListener;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import reactor.core.publisher.Mono;
@@ -17,13 +18,16 @@ import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 import software.amazon.awssdk.services.sqs.model.Message;
 
 import java.net.URI;
+import java.util.Optional;
 import java.util.function.Function;
 
 @Configuration
 public class SQSConfig {
 
+    public static final String CLIENT = "sqsListenerClient";
+
     @Bean
-    public SQSListener sqsListener(SqsAsyncClient client, SQSProperties properties, Function<Message, Mono<Void>> fn) {
+    public SQSListener sqsListener(@Qualifier(CLIENT) SqsAsyncClient client, SQSProperties properties, Function<Message, Mono<Void>> fn) {
         return SQSListener.builder()
                 .client(client)
                 .properties(properties)
@@ -32,7 +36,7 @@ public class SQSConfig {
                 .start();
     }
 
-    @Bean
+    @Bean(CLIENT)
     public SqsAsyncClient configSqs(SQSProperties properties, MetricPublisher publisher) {
         return SqsAsyncClient.builder()
                 .endpointOverride(resolveEndpoint(properties))
@@ -54,9 +58,9 @@ public class SQSConfig {
     }
 
     protected URI resolveEndpoint(SQSProperties properties) {
-        if (properties.endpoint() != null) {
-            return URI.create(properties.endpoint());
-        }
-        return null;
+        return Optional.ofNullable(properties.endpoint())
+                .filter(endpoint -> !endpoint.isBlank())
+                .map(URI::create)
+                .orElse(null);
     }
 }
