@@ -337,3 +337,11 @@ build-cache
 
 # Planning documents (not published yet)
 docs/
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+!*.tfvars.example
