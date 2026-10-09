@@ -1,6 +1,5 @@
 package co.com.ticketing.sqs.sender.config;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
@@ -15,12 +14,15 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 
 import java.net.URI;
+import java.util.Optional;
 
 @Configuration
-@ConditionalOnMissingBean(SqsAsyncClient.class)
 public class SQSSenderConfig {
 
-    @Bean
+    public static final String CLIENT = "sqsSenderClient";
+
+    // Named to avoid a clash with the sqs-listener client
+    @Bean(CLIENT)
     public SqsAsyncClient configSqs(SQSSenderProperties properties, MetricPublisher publisher) {
         return SqsAsyncClient.builder()
                 .endpointOverride(resolveEndpoint(properties))
@@ -42,9 +44,9 @@ public class SQSSenderConfig {
     }
 
     private URI resolveEndpoint(SQSSenderProperties properties) {
-        if (properties.endpoint() != null) {
-            return URI.create(properties.endpoint());
-        }
-        return null;
+        return Optional.ofNullable(properties.endpoint())
+                .filter(endpoint -> !endpoint.isBlank())
+                .map(URI::create)
+                .orElse(null);
     }
 }
