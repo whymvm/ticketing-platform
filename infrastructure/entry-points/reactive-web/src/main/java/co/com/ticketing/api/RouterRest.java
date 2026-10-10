@@ -25,14 +25,22 @@ public class RouterRest {
                     beanClass = EventHandler.class,
                     beanMethod = "retrieveEvent",
                     method = RequestMethod.GET
+            ),
+            @RouterOperation(
+                    path = ApiPaths.ORDERS,
+                    beanClass = OrderHandler.class,
+                    beanMethod = "placeOrder",
+                    method = RequestMethod.POST
             )
     })
     @Bean
-    public RouterFunction<ServerResponse> routerFunction(EventHandler eventHandler, ErrorHandler errorHandler) {
+    public RouterFunction<ServerResponse> routerFunction(EventHandler eventHandler, OrderHandler orderHandler,
+                                                         ErrorHandler errorHandler) {
         return RouterFunctions
                 .route()
                 .POST(ApiPaths.EVENTS, eventHandler::createEvent)
                 .GET(ApiPaths.EVENT_BY_ID, eventHandler::retrieveEvent)
+                .POST(ApiPaths.ORDERS, orderHandler::placeOrder)
                 .onError(Throwable.class, errorHandler::handle)
                 .build();
     }

@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ExtendWith(MockitoExtension.class)
 class DynamoDBConfigTest {
 
-    private static final DynamoDBProperties.Tables TABLES = new DynamoDBProperties.Tables("events");
+    private static final DynamoDBProperties.Tables TABLES = new DynamoDBProperties.Tables("events", "orders");
 
     @Mock
     private MetricPublisher publisher;

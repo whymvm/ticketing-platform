@@ -8,8 +8,15 @@ import co.com.ticketing.model.exception.InvalidEventCapacityException;
 import co.com.ticketing.model.exception.InvalidEventNameException;
 import co.com.ticketing.model.exception.InvalidEventScheduleException;
 import co.com.ticketing.model.exception.InvalidEventVenueException;
+import co.com.ticketing.model.exception.InvalidCustomerException;
+import co.com.ticketing.model.exception.InvalidOrderEventException;
+import co.com.ticketing.model.exception.InvalidOrderQuantityException;
+import co.com.ticketing.model.order.NewOrder;
+import co.com.ticketing.model.order.Order;
+import co.com.ticketing.model.order.OrderStatus;
 import co.com.ticketing.model.event.NewEvent;
 import co.com.ticketing.usecase.createevent.CreateEventUseCase;
+import co.com.ticketing.usecase.placeorder.PlaceOrderUseCase;
 import co.com.ticketing.usecase.retrieveevent.RetrieveEventUseCase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -31,7 +38,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-@ContextConfiguration(classes = {RouterRest.class, EventHandler.class, ErrorHandler.class})
+@ContextConfiguration(classes = {RouterRest.class, EventHandler.class, OrderHandler.class, ErrorHandler.class})
 @WebFluxTest
 class RouterRestTest {
 
@@ -48,6 +55,9 @@ class RouterRestTest {
 
     @MockitoBean
     private RetrieveEventUseCase retrieveEventUseCase;
+
+    @MockitoBean
+    private PlaceOrderUseCase placeOrderUseCase;
 
     @Test
     void createEventReturns201WithLocationAndBody() {
@@ -203,5 +213,91 @@ class RouterRestTest {
                 .expectBody()
                 .jsonPath("$.code").isEqualTo("INTERNAL_ERROR")
                 .jsonPath("$.detail").isEqualTo("Unexpected error");
+    }
+
+    private static final Order QUEUED_ORDER = new Order("o-1", "e-1", "c-1", 2, OrderStatus.QUEUED,
+            Instant.parse("2026-10-10T12:00:00Z"));
+
+    @Test
+    void placeOrderReturns202WithLocationAndTheQueuedOrder() {
+        when(placeOrderUseCase.run(new NewOrder("e-1", 2), "c-1")).thenReturn(Mono.just(QUEUED_ORDER));
+
+        webTestClient.post()
+                .uri("/api/v1/orders")
+                .header("X-Customer-Id", "c-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"eventId\":\"e-1\",\"quantity\":2}")
+                .exchange()
+                .expectStatus().isAccepted()
+                .expectHeader().location("/api/v1/orders/o-1")
+                .expectBody()
+                .jsonPath("$.id").isEqualTo("o-1")
+                .jsonPath("$.status").isEqualTo("QUEUED")
+                .jsonPath("$.customerId").isEqualTo("c-1");
+    }
+
+    @Test
+    void placeOrderUsesTheDefaultCustomerWhenTheHeaderIsMissing() {
+        when(placeOrderUseCase.run(new NewOrder("e-1", 2), "local-customer")).thenReturn(Mono.just(QUEUED_ORDER));
+
+        webTestClient.post()
+                .uri("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"eventId\":\"e-1\",\"quantity\":2}")
+                .exchange()
+                .expectStatus().isAccepted();
+
+        verify(placeOrderUseCase).run(new NewOrder("e-1", 2), "local-customer");
+    }
+
+    @Test
+    void placeOrderReturns404WhenTheEventDoesNotExist() {
+        when(placeOrderUseCase.run(any(NewOrder.class), any()))
+                .thenReturn(Mono.error(new EventNotFoundException("e-9")));
+
+        webTestClient.post()
+                .uri("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"eventId\":\"e-9\",\"quantity\":1}")
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("EVENT_NOT_FOUND");
+    }
+
+    static Stream<Arguments> invalidOrders() {
+        return Stream.of(
+                Arguments.of(new InvalidOrderQuantityException(0, 6), "INVALID_ORDER_QUANTITY"),
+                Arguments.of(new InvalidOrderEventException(), "INVALID_ORDER_EVENT"),
+                Arguments.of(new InvalidCustomerException(64), "INVALID_CUSTOMER"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidOrders")
+    void placeOrderMapsEachValidationErrorToItsOwnCode(RuntimeException error, String expectedCode) {
+        when(placeOrderUseCase.run(any(NewOrder.class), any())).thenReturn(Mono.error(error));
+
+        webTestClient.post()
+                .uri("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"eventId\":\"e-1\",\"quantity\":1}")
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo(expectedCode)
+                .jsonPath("$.detail").isEqualTo(error.getMessage());
+    }
+
+    @Test
+    void placeOrderReturns400WhenTheBodyIsMissing() {
+        webTestClient.post()
+                .uri("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("MISSING_REQUEST_BODY");
+
+        verifyNoInteractions(placeOrderUseCase);
     }
 }
