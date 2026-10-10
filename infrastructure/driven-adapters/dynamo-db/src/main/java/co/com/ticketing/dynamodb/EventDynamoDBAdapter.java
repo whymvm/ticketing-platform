@@ -3,17 +3,27 @@ package co.com.ticketing.dynamodb;
 import co.com.ticketing.dynamodb.config.DynamoDBProperties;
 import co.com.ticketing.model.event.Event;
 import co.com.ticketing.model.event.gateways.EventCreator;
+import co.com.ticketing.model.exception.EventAlreadyExistsException;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
+import software.amazon.awssdk.enhanced.dynamodb.Expression;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
+import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 /**
  * Stores events in DynamoDB.
  */
 @Repository
 public class EventDynamoDBAdapter implements EventCreator {
+
+    // Makes the put fail instead of overwriting an existing event with the same id
+    private static final Expression ID_NOT_EXISTS = Expression.builder()
+            .expression("attribute_not_exists(#id)")
+            .putExpressionName("#id", "id")
+            .build();
 
     private final DynamoDbAsyncTable<EventEntity> table;
 
@@ -23,7 +33,15 @@ public class EventDynamoDBAdapter implements EventCreator {
 
     @Override
     public Mono<Event> save(Event event) {
-        return Mono.fromFuture(() -> table.putItem(EventEntity.from(event)))
+        return Mono.fromFuture(() -> table.putItem(newItemRequest(event)))
+                .onErrorMap(ConditionalCheckFailedException.class, conditionalCheckFailedException -> new EventAlreadyExistsException(event.id()))
                 .thenReturn(event);
+    }
+
+    private static PutItemEnhancedRequest<EventEntity> newItemRequest(Event event) {
+        return PutItemEnhancedRequest.builder(EventEntity.class)
+                .item(EventEntity.from(event))
+                .conditionExpression(ID_NOT_EXISTS)
+                .build();
     }
 }

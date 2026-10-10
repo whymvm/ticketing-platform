@@ -3,6 +3,7 @@ package co.com.ticketing.dynamodb;
 import co.com.ticketing.dynamodb.config.DynamoDBProperties;
 import co.com.ticketing.model.event.Event;
 import co.com.ticketing.model.event.Inventory;
+import co.com.ticketing.model.exception.EventAlreadyExistsException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,10 +14,14 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
+import software.amazon.awssdk.enhanced.dynamodb.Expression;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
+import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -52,15 +57,13 @@ class EventDynamoDBAdapterTest {
 
     @Test
     void savePersistsEveryFieldAndReturnsTheEvent() {
-        when(table.putItem(any(EventEntity.class))).thenReturn(CompletableFuture.completedFuture(null));
+        when(table.putItem(any(PutItemEnhancedRequest.class))).thenReturn(CompletableFuture.completedFuture(null));
 
         StepVerifier.create(adapter.save(EVENT))
                 .expectNext(EVENT)
                 .verifyComplete();
 
-        ArgumentCaptor<EventEntity> captor = ArgumentCaptor.forClass(EventEntity.class);
-        verify(table).putItem(captor.capture());
-        EventEntity saved = captor.getValue();
+        EventEntity saved = capturedRequest().item();
         assertThat(saved.getId()).isEqualTo("e-1");
         assertThat(saved.getName()).isEqualTo("Concert");
         assertThat(saved.getVenue()).isEqualTo("Arena");
@@ -76,8 +79,41 @@ class EventDynamoDBAdapterTest {
     }
 
     @Test
+    void saveOnlyWritesWhenTheIdDoesNotExist() {
+        when(table.putItem(any(PutItemEnhancedRequest.class))).thenReturn(CompletableFuture.completedFuture(null));
+
+        StepVerifier.create(adapter.save(EVENT)).expectNext(EVENT).verifyComplete();
+
+        Expression condition = capturedRequest().conditionExpression();
+        assertThat(condition.expression()).isEqualTo("attribute_not_exists(#id)");
+        assertThat(condition.expressionNames()).containsEntry("#id", "id");
+    }
+
+    @Test
+    void saveFailsWithEventAlreadyExistsWhenTheIdIsTaken() {
+        when(table.putItem(any(PutItemEnhancedRequest.class)))
+                .thenReturn(CompletableFuture.failedFuture(conditionalCheckFailed()));
+
+        StepVerifier.create(adapter.save(EVENT))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(EventAlreadyExistsException.class)
+                        .hasMessage("an event with id e-1 already exists"))
+                .verify();
+    }
+
+    @Test
+    void saveDetectsTheTakenIdWhenTheSdkWrapsTheError() {
+        when(table.putItem(any(PutItemEnhancedRequest.class)))
+                .thenReturn(CompletableFuture.failedFuture(new CompletionException(conditionalCheckFailed())));
+
+        StepVerifier.create(adapter.save(EVENT))
+                .expectError(EventAlreadyExistsException.class)
+                .verify();
+    }
+
+    @Test
     void savePropagatesDynamoErrors() {
-        when(table.putItem(any(EventEntity.class)))
+        when(table.putItem(any(PutItemEnhancedRequest.class)))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("dynamo down")));
 
         StepVerifier.create(adapter.save(EVENT))
@@ -91,5 +127,17 @@ class EventDynamoDBAdapterTest {
 
         verifyNoInteractions(table);
         assertThat(pending).isNotNull();
+    }
+
+    @SuppressWarnings("unchecked")
+    private PutItemEnhancedRequest<EventEntity> capturedRequest() {
+        ArgumentCaptor<PutItemEnhancedRequest<EventEntity>> captor =
+                ArgumentCaptor.forClass(PutItemEnhancedRequest.class);
+        verify(table).putItem(captor.capture());
+        return captor.getValue();
+    }
+
+    private static ConditionalCheckFailedException conditionalCheckFailed() {
+        return ConditionalCheckFailedException.builder().message("The conditional request failed").build();
     }
 }
