@@ -1,6 +1,7 @@
 package co.com.ticketing.dynamodb;
 
 import co.com.ticketing.model.event.Event;
+import co.com.ticketing.model.event.Inventory;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -50,5 +51,13 @@ public class EventEntity {
         entity.setComplimentary(event.inventory().complimentary());
         entity.setCreatedAt(event.createdAt());
         return entity;
+    }
+
+    /**
+     * Rebuilds the event stored in this item.
+     */
+    public Event toDomain() {
+        Inventory inventory = new Inventory(available, reserved, pendingConfirmation, sold, complimentary);
+        return new Event(id, name, venue, startsAt, finishesAt, capacity, inventory, createdAt);
     }
 }

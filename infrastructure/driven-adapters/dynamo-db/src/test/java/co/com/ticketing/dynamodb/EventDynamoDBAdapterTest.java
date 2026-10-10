@@ -15,6 +15,7 @@ import reactor.test.StepVerifier;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
 import software.amazon.awssdk.enhanced.dynamodb.Expression;
+import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
@@ -124,6 +125,45 @@ class EventDynamoDBAdapterTest {
     @Test
     void saveDoesNotWriteUntilSubscribed() {
         Mono<Event> pending = adapter.save(EVENT);
+
+        verifyNoInteractions(table);
+        assertThat(pending).isNotNull();
+    }
+
+    @Test
+    void findByIdRebuildsTheStoredEvent() {
+        when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(EventEntity.from(EVENT)));
+
+        StepVerifier.create(adapter.findById("e-1"))
+                .expectNext(EVENT)
+                .verifyComplete();
+
+        ArgumentCaptor<Key> key = ArgumentCaptor.forClass(Key.class);
+        verify(table).getItem(key.capture());
+        assertThat(key.getValue().partitionKeyValue().s()).isEqualTo("e-1");
+    }
+
+    @Test
+    void findByIdIsEmptyWhenNoEventHasTheId() {
+        when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(null));
+
+        StepVerifier.create(adapter.findById("missing"))
+                .verifyComplete();
+    }
+
+    @Test
+    void findByIdPropagatesDynamoErrors() {
+        when(table.getItem(any(Key.class)))
+                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("dynamo down")));
+
+        StepVerifier.create(adapter.findById("e-1"))
+                .expectErrorMessage("dynamo down")
+                .verify();
+    }
+
+    @Test
+    void findByIdDoesNotReadUntilSubscribed() {
+        Mono<Event> pending = adapter.findById("e-1");
 
         verifyNoInteractions(table);
         assertThat(pending).isNotNull();
