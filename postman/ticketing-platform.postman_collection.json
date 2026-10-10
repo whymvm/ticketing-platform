@@ -1,0 +1,518 @@
+{
+  "info": {
+    "name": "Ticketing Platform",
+    "description": "Basic requests for the Ticketing Platform API.\n\nStart the local stack with `docker compose up --build -d` and run the collection. Dates are generated relative to the current date, so the requests never expire.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Generates dates relative to now so the collection never expires",
+          "const DAY = 24 * 60 * 60 * 1000;",
+          "const HOURS_3 = 3 * 60 * 60 * 1000;",
+          "const future = Date.now() + 30 * DAY;",
+          "const past = Date.now() - 30 * DAY;",
+          "pm.collectionVariables.set('startsAt', new Date(future).toISOString());",
+          "pm.collectionVariables.set('finishesAt', new Date(future + HOURS_3).toISOString());",
+          "pm.collectionVariables.set('pastStartsAt', new Date(past).toISOString());",
+          "pm.collectionVariables.set('pastFinishesAt', new Date(past + HOURS_3).toISOString());"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Readiness",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('reports UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health/readiness",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health",
+                "readiness"
+              ]
+            },
+            "description": "Checks that the application is ready to receive traffic."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Events",
+      "item": [
+        {
+          "name": "Create event",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 201 Created', () => pm.response.to.have.status(201));",
+                  "const event = pm.response.json();",
+                  "pm.test('returns the created event', () => {",
+                  "    pm.expect(event.id).to.be.a('string').and.not.empty;",
+                  "    pm.expect(event.name).to.eql('Rock Concert');",
+                  "    pm.expect(event.capacity).to.eql(5000);",
+                  "    pm.expect(event.createdAt).to.be.a('string');",
+                  "});",
+                  "pm.test('returns the Location of the new event', () => {",
+                  "    pm.expect(pm.response.headers.get('Location')).to.eql(`/api/v1/events/${event.id}`);",
+                  "});",
+                  "pm.collectionVariables.set('eventId', event.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events"
+              ]
+            },
+            "description": "Creates an event. Returns 201 with the Location header and the created event.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 5000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create event - validation errors",
+          "description": "Each request breaks one rule and checks the error code returned by the API.",
+          "item": [
+            {
+              "name": "Invalid capacity",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('returns a problem detail', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "});",
+                      "pm.test('returns code INVALID_EVENT_CAPACITY', () => pm.expect(pm.response.json().code).to.eql('INVALID_EVENT_CAPACITY'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "Capacity must be greater than zero.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 0\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Starts in the past",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('returns a problem detail', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "});",
+                      "pm.test('returns code EVENT_STARTS_IN_THE_PAST', () => pm.expect(pm.response.json().code).to.eql('EVENT_STARTS_IN_THE_PAST'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "A new event cannot start in the past.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{pastStartsAt}}\",\n  \"finishesAt\": \"{{pastFinishesAt}}\",\n  \"capacity\": 5000\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Finishes before it starts",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('returns a problem detail', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "});",
+                      "pm.test('returns code INVALID_EVENT_SCHEDULE', () => pm.expect(pm.response.json().code).to.eql('INVALID_EVENT_SCHEDULE'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "finishesAt must be after startsAt.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{finishesAt}}\",\n  \"finishesAt\": \"{{startsAt}}\",\n  \"capacity\": 5000\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Blank name",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('returns a problem detail', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "});",
+                      "pm.test('returns code INVALID_EVENT_NAME', () => pm.expect(pm.response.json().code).to.eql('INVALID_EVENT_NAME'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "The name is required.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 5000\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Blank venue",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('returns a problem detail', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "});",
+                      "pm.test('returns code INVALID_EVENT_VENUE', () => pm.expect(pm.response.json().code).to.eql('INVALID_EVENT_VENUE'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "The venue is required.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \" \",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 5000\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Missing body",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('returns a problem detail', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "});",
+                      "pm.test('returns code MISSING_REQUEST_BODY', () => pm.expect(pm.response.json().code).to.eql('MISSING_REQUEST_BODY'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "The request has no body."
+              }
+            },
+            {
+              "name": "Malformed JSON",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('returns a problem detail', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "});",
+                      "pm.test('returns code MALFORMED_REQUEST_BODY', () => pm.expect(pm.response.json().code).to.eql('MALFORMED_REQUEST_BODY'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "The body is not valid JSON.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"name\": "
+                }
+              }
+            },
+            {
+              "name": "Unsupported media type",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 415 Unsupported Media Type', () => pm.response.to.have.status(415));",
+                      "pm.test('returns code REQUEST_ERROR', () => pm.expect(pm.response.json().code).to.eql('REQUEST_ERROR'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "text/plain"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "The body is sent as plain text instead of JSON.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "plain text"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "eventId",
+      "value": ""
+    },
+    {
+      "key": "startsAt",
+      "value": ""
+    },
+    {
+      "key": "finishesAt",
+      "value": ""
+    },
+    {
+      "key": "pastStartsAt",
+      "value": ""
+    },
+    {
+      "key": "pastFinishesAt",
+      "value": ""
+    }
+  ]
+}
