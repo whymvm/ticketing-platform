@@ -31,3 +31,9 @@ aws:
     tables:
       events: ${EVENTS_TABLE:}
       orders: ${ORDERS_TABLE:}
+adapter:
+  sqs:
+    region: ${aws.region}
+    endpoint: ${aws.endpoint}
+    queues:
+      reservations: ${QUEUE_RESERVATIONS_URL:}
