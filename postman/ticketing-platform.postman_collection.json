@@ -56,7 +56,38 @@
               ]
             },
             "description": "Checks that the application is ready to receive traffic."
-          }
+          },
+          "response": [
+            {
+              "name": "Readiness",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/actuator/health/readiness",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "actuator",
+                    "health",
+                    "readiness"
+                  ]
+                },
+                "description": "Checks that the application is ready to receive traffic."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/vnd.spring-boot.actuator.v3+json"
+                }
+              ],
+              "body": "{\n  \"status\": \"UP\"\n}"
+            }
+          ]
         }
       ]
     },
@@ -78,6 +109,9 @@
                   "    pm.expect(event.name).to.eql('Rock Concert');",
                   "    pm.expect(event.capacity).to.eql(5000);",
                   "    pm.expect(event.createdAt).to.be.a('string');",
+                  "});",
+                  "pm.test('starts with every ticket available', () => {",
+                  "    pm.expect(event.inventory).to.eql({ available: 5000, reserved: 0, pendingConfirmation: 0, sold: 0, complimentary: 0 });",
                   "});",
                   "pm.test('returns the Location of the new event', () => {",
                   "    pm.expect(pm.response.headers.get('Location')).to.eql(`/api/v1/events/${event.id}`);",
@@ -106,7 +140,7 @@
                 "events"
               ]
             },
-            "description": "Creates an event. Returns 201 with the Location header and the created event.",
+            "description": "Creates an event. Returns 201 with the Location header and the created event, whose inventory starts with every ticket available.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 5000\n}",
@@ -116,7 +150,56 @@
                 }
               }
             }
-          }
+          },
+          "response": [
+            {
+              "name": "Create event",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "Creates an event. Returns 201 with the Location header and the created event, whose inventory starts with every ticket available.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 5000\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                },
+                {
+                  "key": "Location",
+                  "value": "/api/v1/events/6b10eaeb-6ad8-418c-b6e6-d0eb53ef06a9"
+                }
+              ],
+              "body": "{\n  \"id\": \"6b10eaeb-6ad8-418c-b6e6-d0eb53ef06a9\",\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"2026-11-09T04:16:11Z\",\n  \"finishesAt\": \"2026-11-09T07:16:11Z\",\n  \"capacity\": 5000,\n  \"inventory\": {\n    \"available\": 5000,\n    \"reserved\": 0,\n    \"pendingConfirmation\": 0,\n    \"sold\": 0,\n    \"complimentary\": 0\n  },\n  \"createdAt\": \"2026-10-10T04:16:11.386434011Z\"\n}"
+            }
+          ]
         },
         {
           "name": "Create event - validation errors",
@@ -168,7 +251,52 @@
                     }
                   }
                 }
-              }
+              },
+              "response": [
+                {
+                  "name": "Invalid capacity",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "Capacity must be greater than zero.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 0\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"capacity must be greater than zero but was 0\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"INVALID_EVENT_CAPACITY\"\n}"
+                }
+              ]
             },
             {
               "name": "Starts in the past",
@@ -216,7 +344,52 @@
                     }
                   }
                 }
-              }
+              },
+              "response": [
+                {
+                  "name": "Starts in the past",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "A new event cannot start in the past.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{pastStartsAt}}\",\n  \"finishesAt\": \"{{pastFinishesAt}}\",\n  \"capacity\": 5000\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"startsAt must be in the future but was 2026-09-10T04:16:11Z\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"EVENT_STARTS_IN_THE_PAST\"\n}"
+                }
+              ]
             },
             {
               "name": "Finishes before it starts",
@@ -264,7 +437,52 @@
                     }
                   }
                 }
-              }
+              },
+              "response": [
+                {
+                  "name": "Finishes before it starts",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "finishesAt must be after startsAt.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{finishesAt}}\",\n  \"finishesAt\": \"{{startsAt}}\",\n  \"capacity\": 5000\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"startsAt and finishesAt are required and finishesAt must be after startsAt\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"INVALID_EVENT_SCHEDULE\"\n}"
+                }
+              ]
             },
             {
               "name": "Blank name",
@@ -312,7 +530,52 @@
                     }
                   }
                 }
-              }
+              },
+              "response": [
+                {
+                  "name": "Blank name",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "The name is required.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 5000\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"name must not be blank and must have at most 200 characters\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"INVALID_EVENT_NAME\"\n}"
+                }
+              ]
             },
             {
               "name": "Blank venue",
@@ -360,7 +623,52 @@
                     }
                   }
                 }
-              }
+              },
+              "response": [
+                {
+                  "name": "Blank venue",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "The venue is required.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \" \",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 5000\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"venue must not be blank and must have at most 200 characters\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"INVALID_EVENT_VENUE\"\n}"
+                }
+              ]
             },
             {
               "name": "Missing body",
@@ -399,7 +707,43 @@
                   ]
                 },
                 "description": "The request has no body."
-              }
+              },
+              "response": [
+                {
+                  "name": "Missing body",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "The request has no body."
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"Request body is required\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"MISSING_REQUEST_BODY\"\n}"
+                }
+              ]
             },
             {
               "name": "Malformed JSON",
@@ -442,7 +786,47 @@
                   "mode": "raw",
                   "raw": "{ \"name\": "
                 }
-              }
+              },
+              "response": [
+                {
+                  "name": "Malformed JSON",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "The body is not valid JSON.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{ \"name\": "
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"Malformed request body\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"MALFORMED_REQUEST_BODY\"\n}"
+                }
+              ]
             },
             {
               "name": "Unsupported media type",
@@ -482,7 +866,47 @@
                   "mode": "raw",
                   "raw": "plain text"
                 }
-              }
+              },
+              "response": [
+                {
+                  "name": "Unsupported media type",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "text/plain"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "The body is sent as plain text instead of JSON.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "plain text"
+                    }
+                  },
+                  "status": "Unsupported Media Type",
+                  "code": 415,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"Content type 'text/plain' not supported for bodyType=co.com.ticketing.model.event.NewEvent\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 415,\n  \"title\": \"Unsupported Media Type\",\n  \"code\": \"REQUEST_ERROR\"\n}"
+                }
+              ]
             }
           ]
         }
