@@ -1,19 +1,19 @@
 package co.com.ticketing.model.order.gateways;
 
-import co.com.ticketing.model.order.Order;
+import co.com.ticketing.model.order.OrderPlaced;
 import reactor.core.publisher.Mono;
 
 /**
- * Queues orders so their tickets are reserved asynchronously.
+ * Publishes order events so other components react to them asynchronously.
  */
 public interface OrderPublisher {
 
     /**
-     * Publishes an order to be processed.
+     * Publishes that an order was placed.
      *
-     * @param order the order to publish
-     * @return a Mono that completes once the order is queued
+     * @param event the event to publish
+     * @return a Mono that completes once the event is queued
      */
-    Mono<Void> publish(Order order);
+    Mono<Void> publish(OrderPlaced event);
 
 }

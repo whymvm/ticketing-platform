@@ -1,6 +1,6 @@
 package co.com.ticketing.sqs.sender;
 
-import co.com.ticketing.model.order.Order;
+import co.com.ticketing.model.order.OrderPlaced;
 import co.com.ticketing.model.order.gateways.OrderPublisher;
 import co.com.ticketing.sqs.sender.config.SQSSenderProperties;
 import org.springframework.stereotype.Component;
@@ -10,7 +10,7 @@ import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Queues orders in the SQS reservations queue.
+ * Publishes order events to the SQS reservations queue.
  */
 @Component
 public class OrderSQSPublisher implements OrderPublisher {
@@ -26,16 +26,16 @@ public class OrderSQSPublisher implements OrderPublisher {
     }
 
     @Override
-    public Mono<Void> publish(Order order) {
-        return Mono.fromCallable(() -> request(order))
+    public Mono<Void> publish(OrderPlaced event) {
+        return Mono.fromCallable(() -> request(event))
                 .flatMap(request -> Mono.fromFuture(() -> client.sendMessage(request)))
                 .then();
     }
 
-    private SendMessageRequest request(Order order) {
+    private SendMessageRequest request(OrderPlaced event) {
         return SendMessageRequest.builder()
                 .queueUrl(queueUrl)
-                .messageBody(JSON.writeValueAsString(ReserveTicketsMessage.of(order.id())))
+                .messageBody(JSON.writeValueAsString(OrderPlacedMessage.from(event)))
                 .build();
     }
 }

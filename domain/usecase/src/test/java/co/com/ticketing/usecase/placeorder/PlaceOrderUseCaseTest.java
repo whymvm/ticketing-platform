@@ -7,6 +7,7 @@ import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.exception.InvalidOrderQuantityException;
 import co.com.ticketing.model.order.NewOrder;
 import co.com.ticketing.model.order.Order;
+import co.com.ticketing.model.order.OrderPlaced;
 import co.com.ticketing.model.order.OrderStatus;
 import co.com.ticketing.model.order.gateways.OrderCreator;
 import co.com.ticketing.model.order.gateways.OrderPublisher;
@@ -56,10 +57,10 @@ class PlaceOrderUseCaseTest {
     }
 
     @Test
-    void savesAndQueuesANewOrder() {
+    void savesTheOrderAndPublishesOrderPlaced() {
         when(eventRetriever.findById("e-1")).thenReturn(Mono.just(EVENT));
         when(orderCreator.save(any(Order.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
-        when(orderPublisher.publish(any(Order.class))).thenReturn(Mono.empty());
+        when(orderPublisher.publish(any(OrderPlaced.class))).thenReturn(Mono.empty());
 
         StepVerifier.create(useCase.run(new NewOrder("e-1", 2), "c-1"))
                 .assertNext(order -> {
@@ -72,9 +73,10 @@ class PlaceOrderUseCaseTest {
                 })
                 .verifyComplete();
 
-        ArgumentCaptor<Order> published = ArgumentCaptor.forClass(Order.class);
+        ArgumentCaptor<OrderPlaced> published = ArgumentCaptor.forClass(OrderPlaced.class);
         verify(orderPublisher).publish(published.capture());
-        assertThat(published.getValue().status()).isEqualTo(OrderStatus.QUEUED);
+        assertThat(published.getValue().orderId()).isNotBlank();
+        assertThat(published.getValue().occurredAt()).isEqualTo(NOW);
     }
 
     @Test
@@ -115,7 +117,8 @@ class PlaceOrderUseCaseTest {
     void propagatesPublishingErrors() {
         when(eventRetriever.findById("e-1")).thenReturn(Mono.just(EVENT));
         when(orderCreator.save(any(Order.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
-        when(orderPublisher.publish(any(Order.class))).thenReturn(Mono.error(new IllegalStateException("queue down")));
+        when(orderPublisher.publish(any(OrderPlaced.class)))
+                .thenReturn(Mono.error(new IllegalStateException("queue down")));
 
         StepVerifier.create(useCase.run(new NewOrder("e-1", 1), "c-1"))
                 .expectErrorMessage("queue down")

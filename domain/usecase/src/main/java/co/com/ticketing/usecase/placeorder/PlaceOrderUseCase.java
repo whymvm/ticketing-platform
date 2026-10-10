@@ -4,6 +4,7 @@ import co.com.ticketing.model.event.gateways.EventRetriever;
 import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.order.NewOrder;
 import co.com.ticketing.model.order.Order;
+import co.com.ticketing.model.order.OrderPlaced;
 import co.com.ticketing.model.order.gateways.OrderCreator;
 import co.com.ticketing.model.order.gateways.OrderPublisher;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +22,7 @@ public class PlaceOrderUseCase {
     private final Clock clock;
 
     /**
-     * Places an order for an existing event, saves it and queues it so its tickets are reserved later.
+     * Places an order for an existing event, saves it and publishes OrderPlaced so its tickets are reserved later.
      * Emits an error if the data is invalid or the event does not exist.
      */
     public Mono<Order> run(NewOrder newOrder, String customerId) {
@@ -29,7 +30,7 @@ public class PlaceOrderUseCase {
                         clock.instant()))
                 .flatMap(this::requireExistingEvent)
                 .flatMap(orderCreator::save)
-                .flatMap(order -> orderPublisher.publish(order).thenReturn(order));
+                .flatMap(order -> orderPublisher.publish(OrderPlaced.from(order)).thenReturn(order));
     }
 
     private Mono<Order> requireExistingEvent(Order order) {

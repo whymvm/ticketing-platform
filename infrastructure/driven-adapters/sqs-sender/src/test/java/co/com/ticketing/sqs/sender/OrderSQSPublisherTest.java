@@ -1,7 +1,6 @@
 package co.com.ticketing.sqs.sender;
 
-import co.com.ticketing.model.order.Order;
-import co.com.ticketing.model.order.OrderStatus;
+import co.com.ticketing.model.order.OrderPlaced;
 import co.com.ticketing.sqs.sender.config.SQSSenderProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,8 +27,7 @@ import static org.mockito.Mockito.when;
 class OrderSQSPublisherTest {
 
     private static final String QUEUE_URL = "http://localstack:4566/000000000000/local-ticketing-reservations";
-    private static final Order ORDER = new Order("o-1", "e-1", "c-1", 2, OrderStatus.QUEUED,
-            Instant.parse("2026-10-10T12:00:00Z"));
+    private static final OrderPlaced EVENT = new OrderPlaced("o-1", Instant.parse("2026-10-10T12:00:00Z"));
 
     @Mock
     private SqsAsyncClient client;
@@ -43,16 +41,17 @@ class OrderSQSPublisherTest {
     }
 
     @Test
-    void sendsOnlyTheOrderIdToTheReservationsQueue() {
+    void sendsTheOrderPlacedEventToTheReservationsQueue() {
         when(client.sendMessage(any(SendMessageRequest.class)))
                 .thenReturn(CompletableFuture.completedFuture(SendMessageResponse.builder().messageId("m-1").build()));
 
-        StepVerifier.create(publisher.publish(ORDER)).verifyComplete();
+        StepVerifier.create(publisher.publish(EVENT)).verifyComplete();
 
         ArgumentCaptor<SendMessageRequest> request = ArgumentCaptor.forClass(SendMessageRequest.class);
         verify(client).sendMessage(request.capture());
         assertThat(request.getValue().queueUrl()).isEqualTo(QUEUE_URL);
-        assertThat(request.getValue().messageBody()).isEqualTo("{\"type\":\"RESERVE_TICKETS\",\"orderId\":\"o-1\"}");
+        assertThat(request.getValue().messageBody()).isEqualTo(
+                "{\"type\":\"ORDER_PLACED\",\"orderId\":\"o-1\",\"occurredAt\":\"2026-10-10T12:00:00Z\"}");
     }
 
     @Test
@@ -60,14 +59,14 @@ class OrderSQSPublisherTest {
         when(client.sendMessage(any(SendMessageRequest.class)))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("queue down")));
 
-        StepVerifier.create(publisher.publish(ORDER))
+        StepVerifier.create(publisher.publish(EVENT))
                 .expectErrorMessage("queue down")
                 .verify();
     }
 
     @Test
     void doesNotSendUntilSubscribed() {
-        Mono<Void> pending = publisher.publish(ORDER);
+        Mono<Void> pending = publisher.publish(EVENT);
 
         verifyNoInteractions(client);
         assertThat(pending).isNotNull();
