@@ -19,6 +19,12 @@ public class RouterRest {
                     beanClass = EventHandler.class,
                     beanMethod = "createEvent",
                     method = RequestMethod.POST
+            ),
+            @RouterOperation(
+                    path = ApiPaths.EVENT_BY_ID,
+                    beanClass = EventHandler.class,
+                    beanMethod = "retrieveEvent",
+                    method = RequestMethod.GET
             )
     })
     @Bean
@@ -26,6 +32,7 @@ public class RouterRest {
         return RouterFunctions
                 .route()
                 .POST(ApiPaths.EVENTS, eventHandler::createEvent)
+                .GET(ApiPaths.EVENT_BY_ID, eventHandler::retrieveEvent)
                 .onError(Throwable.class, errorHandler::handle)
                 .build();
     }
