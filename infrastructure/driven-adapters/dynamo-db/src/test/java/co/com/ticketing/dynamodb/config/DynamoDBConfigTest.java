@@ -8,10 +8,14 @@ import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
 import software.amazon.awssdk.metrics.MetricPublisher;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import java.net.URI;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 @ExtendWith(MockitoExtension.class)
 class DynamoDBConfigTest {
+
+    private static final DynamoDBProperties.Tables TABLES = new DynamoDBProperties.Tables("events");
 
     @Mock
     private MetricPublisher publisher;
@@ -22,31 +26,37 @@ class DynamoDBConfigTest {
     private final DynamoDBConfig dynamoDBConfig = new DynamoDBConfig();
 
     @Test
-    void testAmazonDynamoDB() {
+    void usesTheConfiguredEndpoint() {
+        DynamoDBProperties properties = new DynamoDBProperties("us-east-1", "http://localstack:4566", TABLES);
 
-        DynamoDbAsyncClient result = dynamoDBConfig.amazonDynamoDB(
-                "http://aws.dynamo.test",
-                "region",
-                publisher);
-
-        assertNotNull(result);
+        try (DynamoDbAsyncClient client = dynamoDBConfig.amazonDynamoDB(properties, publisher)) {
+            assertThat(client.serviceClientConfiguration().endpointOverride())
+                    .contains(URI.create("http://localstack:4566"));
+        }
     }
 
     @Test
-    void testAmazonDynamoDBAsync() {
+    void usesTheDefaultAwsEndpointWhenNoneIsConfigured() {
+        DynamoDBProperties properties = new DynamoDBProperties("us-east-1", null, TABLES);
 
-        DynamoDbAsyncClient result = dynamoDBConfig.amazonDynamoDBAsync(
-                publisher,
-                "region");
-
-        assertNotNull(result);
+        try (DynamoDbAsyncClient client = dynamoDBConfig.amazonDynamoDB(properties, publisher)) {
+            assertThat(client.serviceClientConfiguration().endpointOverride()).isEmpty();
+        }
     }
 
+    @Test
+    void ignoresABlankEndpoint() {
+        DynamoDBProperties properties = new DynamoDBProperties("us-east-1", " ", TABLES);
+
+        try (DynamoDbAsyncClient client = dynamoDBConfig.amazonDynamoDB(properties, publisher)) {
+            assertThat(client.serviceClientConfiguration().endpointOverride()).isEmpty();
+        }
+    }
 
     @Test
-    void testGetDynamoDbEnhancedAsyncClient() {
+    void createsTheEnhancedClient() {
         DynamoDbEnhancedAsyncClient result = dynamoDBConfig.getDynamoDbEnhancedAsyncClient(dynamoDbAsyncClient);
 
-        assertNotNull(result);
+        assertThat(result).isNotNull();
     }
 }
