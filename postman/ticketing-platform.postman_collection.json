@@ -1050,6 +1050,320 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "Place order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 202 Accepted', () => pm.response.to.have.status(202));",
+                  "const order = pm.response.json();",
+                  "pm.test('returns the queued order', () => {",
+                  "    pm.expect(order.id).to.be.a('string').and.not.empty;",
+                  "    pm.expect(order.eventId).to.eql(pm.collectionVariables.get('eventId'));",
+                  "    pm.expect(order.customerId).to.eql(pm.collectionVariables.get('customerId'));",
+                  "    pm.expect(order.quantity).to.eql(2);",
+                  "    pm.expect(order.status).to.eql('QUEUED');",
+                  "});",
+                  "pm.test('returns the Location of the new order', () => {",
+                  "    pm.expect(pm.response.headers.get('Location')).to.eql(`/api/v1/orders/${order.id}`);",
+                  "});",
+                  "pm.collectionVariables.set('orderId', order.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Places an order for the event created by \"Create event\". Returns 202: the tickets are reserved later, asynchronously.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Places an order for the event created by \"Create event\". Returns 202: the tickets are reserved later, asynchronously.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                },
+                {
+                  "key": "Location",
+                  "value": "/api/v1/orders/055d55a0-fbe3-45ac-b706-10a48c14901d"
+                }
+              ],
+              "body": "{\n  \"id\": \"055d55a0-fbe3-45ac-b706-10a48c14901d\",\n  \"eventId\": \"1b1b2e02-3c00-465c-9dcb-d11b1d38157e\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"QUEUED\",\n  \"createdAt\": \"2026-10-10T23:07:44.366634460Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Place order - event not found",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 404', () => pm.response.to.have.status(404));",
+                  "pm.test('returns code EVENT_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('EVENT_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Places an order for an event that does not exist.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"00000000-0000-0000-0000-000000000000\",\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order - event not found",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Places an order for an event that does not exist.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"00000000-0000-0000-0000-000000000000\",\n  \"quantity\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"no event found with id 00000000-0000-0000-0000-000000000000\",\n  \"instance\": \"/api/v1/orders\",\n  \"status\": 404,\n  \"title\": \"Not Found\",\n  \"code\": \"EVENT_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Place order - invalid quantity",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 400', () => pm.response.to.have.status(400));",
+                  "pm.test('returns code INVALID_ORDER_QUANTITY', () => pm.expect(pm.response.json().code).to.eql('INVALID_ORDER_QUANTITY'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Asks for more tickets than an order allows (maximum 6).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 7\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order - invalid quantity",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Asks for more tickets than an order allows (maximum 6).",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 7\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"quantity must be between 1 and 6 but was 7\",\n  \"instance\": \"/api/v1/orders\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"INVALID_ORDER_QUANTITY\"\n}"
+            }
+          ]
+        }
+      ]
     }
   ],
   "variable": [
@@ -1075,6 +1389,14 @@
     },
     {
       "key": "pastFinishesAt",
+      "value": ""
+    },
+    {
+      "key": "customerId",
+      "value": "mateo"
+    },
+    {
+      "key": "orderId",
       "value": ""
     }
   ]
