@@ -2,7 +2,9 @@ package co.com.ticketing.model.event;
 
 import co.com.ticketing.model.exception.InconsistentInventoryException;
 
-import java.util.stream.Stream;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * Counts the tickets of an event by state.
@@ -14,13 +16,24 @@ public record Inventory(Integer available,
                         Integer complimentary) {
 
     public Inventory {
-        if (hasMissingOrNegativeCounters(available, reserved, pendingConfirmation, sold, complimentary)) {
-            throw new InconsistentInventoryException("counters must be present and not negative");
+
+        List<Integer> counters = Arrays.asList(available, reserved, pendingConfirmation, sold, complimentary);
+
+        if (hasMissingCounters(counters)) {
+            throw new InconsistentInventoryException("counters must be present");
+        }
+
+        if (hasNegativeCounters(counters)) {
+            throw new InconsistentInventoryException("counters must be not negative");
         }
     }
 
-    private static boolean hasMissingOrNegativeCounters(Integer... counters) {
-        return Stream.of(counters).anyMatch(count -> count == null || count < 0);
+    private static boolean hasMissingCounters(List<Integer> counters) {
+        return counters.stream().anyMatch(Objects::isNull);
+    }
+
+    private static boolean hasNegativeCounters(List<Integer> counters) {
+        return counters.stream().anyMatch(counter -> counter < 0);
     }
 
     /**

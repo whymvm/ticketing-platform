@@ -62,8 +62,12 @@ public record Event(String id,
 
     private static Inventory validInventory(Inventory inventory, int capacity) {
         return Optional.ofNullable(inventory)
-                .filter(counters -> counters.total() == capacity)
+                .filter(counters -> matchesCapacity(capacity, counters))
                 .orElseThrow(() -> new InconsistentInventoryException("counters must add up to " + capacity));
+    }
+
+    private static boolean matchesCapacity(int capacity, Inventory counters) {
+        return counters.total() == capacity;
     }
 
     private static Event requireFutureStart(Event event, Instant now) {

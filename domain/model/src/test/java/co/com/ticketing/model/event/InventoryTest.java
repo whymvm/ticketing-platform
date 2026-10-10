@@ -22,13 +22,13 @@ class InventoryTest {
     void rejectsNegativeCounters() {
         assertThatThrownBy(() -> new Inventory(10, -1, 0, 0, 0))
                 .isInstanceOf(InconsistentInventoryException.class)
-                .hasMessage("inconsistent inventory: counters must be present and not negative");
+                .hasMessage("inconsistent inventory: counters must be not negative");
     }
 
     @Test
     void rejectsMissingCounters() {
         assertThatThrownBy(() -> new Inventory(null, 0, 0, 0, 0))
                 .isInstanceOf(InconsistentInventoryException.class)
-                .hasMessage("inconsistent inventory: counters must be present and not negative");
+                .hasMessage("inconsistent inventory: counters must be present");
     }
 }
