@@ -3,6 +3,11 @@ output "events_table_name" {
   value       = module.data.events_table_name
 }
 
+output "orders_table_name" {
+  description = "Orders table name."
+  value       = module.data.orders_table_name
+}
+
 output "queue_urls" {
   description = "Main queue URLs."
   value       = module.messaging.queue_urls

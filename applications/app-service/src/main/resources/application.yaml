@@ -30,3 +30,4 @@ aws:
     endpoint: ${aws.endpoint}
     tables:
       events: ${EVENTS_TABLE:}
+      orders: ${ORDERS_TABLE:}

@@ -49,6 +49,7 @@ services:
       AWS_ACCESS_KEY_ID: test        # dummy LocalStack credentials, not secrets
       AWS_SECRET_ACCESS_KEY: test
       EVENTS_TABLE: local-ticketing-events
+      ORDERS_TABLE: local-ticketing-orders
     ports:
       - "8080:8080"
     depends_on:
