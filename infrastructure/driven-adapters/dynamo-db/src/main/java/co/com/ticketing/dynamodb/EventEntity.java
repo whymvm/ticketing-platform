@@ -1,89 +1,54 @@
 package co.com.ticketing.dynamodb;
 
+import co.com.ticketing.model.event.Event;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbBean;
 import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbPartitionKey;
 
 import java.time.Instant;
 
+/**
+ * Event item in DynamoDB. Inventory counters are top-level attributes so they can be updated atomically.
+ */
 @DynamoDbBean
+@Getter
+@Setter
+@NoArgsConstructor
 public class EventEntity {
 
+    @Getter(onMethod_ = @DynamoDbPartitionKey)
     private String id;
     private String name;
     private String venue;
     private Instant startsAt;
     private Instant finishesAt;
     private Integer capacity;
+    private Integer available;
+    private Integer reserved;
+    private Integer pendingConfirmation;
+    private Integer sold;
+    private Integer complimentary;
     private Instant createdAt;
 
-    public EventEntity() {
-    }
-
-    public EventEntity(String id, String name, String venue, Instant startsAt, Instant finishesAt,
-                       Integer capacity, Instant createdAt) {
-        this.id = id;
-        this.name = name;
-        this.venue = venue;
-        this.startsAt = startsAt;
-        this.finishesAt = finishesAt;
-        this.capacity = capacity;
-        this.createdAt = createdAt;
-    }
-
-    @DynamoDbPartitionKey
-    public String getId() {
-        return id;
-    }
-
-    public void setId(String id) {
-        this.id = id;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getVenue() {
-        return venue;
-    }
-
-    public void setVenue(String venue) {
-        this.venue = venue;
-    }
-
-    public Instant getStartsAt() {
-        return startsAt;
-    }
-
-    public void setStartsAt(Instant startsAt) {
-        this.startsAt = startsAt;
-    }
-
-    public Instant getFinishesAt() {
-        return finishesAt;
-    }
-
-    public void setFinishesAt(Instant finishesAt) {
-        this.finishesAt = finishesAt;
-    }
-
-    public Integer getCapacity() {
-        return capacity;
-    }
-
-    public void setCapacity(Integer capacity) {
-        this.capacity = capacity;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(Instant createdAt) {
-        this.createdAt = createdAt;
+    /**
+     * Builds the item from an event.
+     */
+    public static EventEntity from(Event event) {
+        EventEntity entity = new EventEntity();
+        entity.setId(event.id());
+        entity.setName(event.name());
+        entity.setVenue(event.venue());
+        entity.setStartsAt(event.startsAt());
+        entity.setFinishesAt(event.finishesAt());
+        entity.setCapacity(event.capacity());
+        entity.setAvailable(event.inventory().available());
+        entity.setReserved(event.inventory().reserved());
+        entity.setPendingConfirmation(event.inventory().pendingConfirmation());
+        entity.setSold(event.inventory().sold());
+        entity.setComplimentary(event.inventory().complimentary());
+        entity.setCreatedAt(event.createdAt());
+        return entity;
     }
 }

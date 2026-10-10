@@ -2,6 +2,7 @@ package co.com.ticketing.model.event;
 
 
 import co.com.ticketing.model.exception.EventStartsInThePastException;
+import co.com.ticketing.model.exception.InconsistentInventoryException;
 import co.com.ticketing.model.exception.InvalidEventCapacityException;
 import co.com.ticketing.model.exception.InvalidEventNameException;
 import co.com.ticketing.model.exception.InvalidEventScheduleException;
@@ -17,6 +18,7 @@ public record Event(String id,
                     Instant startsAt,
                     Instant finishesAt,
                     Integer capacity,
+                    Inventory inventory,
                     Instant createdAt) {
 
     public static final int MAX_TEXT_LENGTH = 200;
@@ -27,14 +29,16 @@ public record Event(String id,
         venue = validText(venue, () -> new InvalidEventVenueException(MAX_TEXT_LENGTH));
         finishesAt = validFinish(startsAt, finishesAt);
         capacity = validCapacity(capacity);
+        inventory = validInventory(inventory, capacity);
     }
 
     /**
-     * Creates a new event. Rejects events that start in the past.
+     * Creates a new event with every ticket available. Rejects events that start in the past.
      */
     public static Event create(String id, NewEvent newEvent, Instant now) {
+        Integer capacity = validCapacity(newEvent.capacity());
         Event event = new Event(id, newEvent.name(), newEvent.venue(), newEvent.startsAt(), newEvent.finishesAt(),
-                newEvent.capacity(), now);
+                capacity, Inventory.initial(capacity), now);
         return requireFutureStart(event, now);
     }
 
@@ -54,6 +58,12 @@ public record Event(String id,
         return Optional.ofNullable(capacity)
                 .filter(value -> value > 0)
                 .orElseThrow(() -> new InvalidEventCapacityException(capacity));
+    }
+
+    private static Inventory validInventory(Inventory inventory, int capacity) {
+        return Optional.ofNullable(inventory)
+                .filter(counters -> counters.total() == capacity)
+                .orElseThrow(() -> new InconsistentInventoryException("counters must add up to " + capacity));
     }
 
     private static Event requireFutureStart(Event event, Instant now) {

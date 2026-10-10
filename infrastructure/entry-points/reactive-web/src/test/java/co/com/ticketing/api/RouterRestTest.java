@@ -1,6 +1,7 @@
 package co.com.ticketing.api;
 
 import co.com.ticketing.model.event.Event;
+import co.com.ticketing.model.event.Inventory;
 import co.com.ticketing.model.exception.EventStartsInThePastException;
 import co.com.ticketing.model.exception.InvalidEventCapacityException;
 import co.com.ticketing.model.exception.InvalidEventNameException;
@@ -46,7 +47,8 @@ class RouterRestTest {
     @Test
     void createEventReturns201WithLocationAndBody() {
         Event event = new Event("e-1", "Concert", "Arena", Instant.parse("2026-12-05T01:00:00Z"),
-                Instant.parse("2026-12-05T04:00:00Z"), 5000, Instant.parse("2026-10-09T12:00:00Z"));
+                Instant.parse("2026-12-05T04:00:00Z"), 5000, Inventory.initial(5000),
+                Instant.parse("2026-10-09T12:00:00Z"));
         when(createEventUseCase.run(any(NewEvent.class))).thenReturn(Mono.just(event));
 
         webTestClient.post()
@@ -59,6 +61,8 @@ class RouterRestTest {
                 .expectBody()
                 .jsonPath("$.id").isEqualTo("e-1")
                 .jsonPath("$.capacity").isEqualTo(5000)
+                .jsonPath("$.inventory.available").isEqualTo(5000)
+                .jsonPath("$.inventory.sold").isEqualTo(0)
                 .jsonPath("$.startsAt").isEqualTo("2026-12-05T01:00:00Z");
 
         verify(createEventUseCase).run(new NewEvent("Concert", "Arena",

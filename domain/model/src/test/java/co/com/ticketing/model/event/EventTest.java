@@ -1,6 +1,7 @@
 package co.com.ticketing.model.event;
 
 import co.com.ticketing.model.exception.EventStartsInThePastException;
+import co.com.ticketing.model.exception.InconsistentInventoryException;
 import co.com.ticketing.model.exception.InvalidEventCapacityException;
 import co.com.ticketing.model.exception.InvalidEventNameException;
 import co.com.ticketing.model.exception.InvalidEventScheduleException;
@@ -23,10 +24,11 @@ class EventTest {
     private static final Instant FINISHES_AT = STARTS_AT.plus(Duration.ofHours(3));
 
     @Test
-    void createBuildsEventWithCreationInstant() {
+    void createBuildsEventWithEveryTicketAvailable() {
         Event event = Event.create("e-1", new NewEvent("Concert", "Arena", STARTS_AT, FINISHES_AT, 5000), NOW);
 
-        assertThat(event).isEqualTo(new Event("e-1", "Concert", "Arena", STARTS_AT, FINISHES_AT, 5000, NOW));
+        assertThat(event).isEqualTo(new Event("e-1", "Concert", "Arena", STARTS_AT, FINISHES_AT, 5000,
+                Inventory.initial(5000), NOW));
     }
 
     @Test
@@ -40,15 +42,31 @@ class EventTest {
     void storedEventsMayAlreadyHaveStarted() {
         Instant pastStart = NOW.minus(Duration.ofDays(1));
 
-        Event rehydrated = new Event("e-1", "Concert", "Arena", pastStart, pastStart.plusSeconds(60), 10, NOW);
+        Event rehydrated = new Event("e-1", "Concert", "Arena", pastStart, pastStart.plusSeconds(60), 10,
+                Inventory.initial(10), NOW);
 
         assertThat(rehydrated.startsAt()).isEqualTo(pastStart);
     }
 
     @Test
     void storedEventsAlsoEnforceTheInvariants() {
-        assertThatThrownBy(() -> new Event("e-1", " ", "Arena", STARTS_AT, FINISHES_AT, 10, NOW))
+        assertThatThrownBy(() -> new Event("e-1", " ", "Arena", STARTS_AT, FINISHES_AT, 10, Inventory.initial(10), NOW))
                 .isInstanceOf(InvalidEventNameException.class);
+    }
+
+    @Test
+    void rejectsInventoryThatDoesNotAddUpToCapacity() {
+        Inventory inventory = new Inventory(8, 1, 0, 0, 0);
+
+        assertThatThrownBy(() -> new Event("e-1", "Concert", "Arena", STARTS_AT, FINISHES_AT, 10, inventory, NOW))
+                .isInstanceOf(InconsistentInventoryException.class)
+                .hasMessage("inconsistent inventory: counters must add up to 10");
+    }
+
+    @Test
+    void rejectsMissingInventory() {
+        assertThatThrownBy(() -> new Event("e-1", "Concert", "Arena", STARTS_AT, FINISHES_AT, 10, null, NOW))
+                .isInstanceOf(InconsistentInventoryException.class);
     }
 
     @Test
