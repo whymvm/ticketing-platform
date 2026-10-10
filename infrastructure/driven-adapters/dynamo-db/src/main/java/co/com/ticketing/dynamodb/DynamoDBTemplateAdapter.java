@@ -1,43 +1,35 @@
 package co.com.ticketing.dynamodb;
 
+import co.com.ticketing.dynamodb.config.DynamoDBProperties;
 import co.com.ticketing.dynamodb.helper.TemplateAdapterOperations;
+import co.com.ticketing.model.event.Event;
+import co.com.ticketing.model.event.gateways.EventCreator;
 import org.reactivecommons.utils.ObjectMapper;
 import org.springframework.stereotype.Repository;
-import reactor.core.publisher.Mono;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
-import software.amazon.awssdk.enhanced.dynamodb.Key;
-import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
-import software.amazon.awssdk.enhanced.dynamodb.model.QueryEnhancedRequest;
-
-import java.util.List;
 
 
+/**
+ * Stores events in DynamoDB. The save method is inherited from {@link TemplateAdapterOperations}.
+ */
 @Repository
-public class DynamoDBTemplateAdapter extends TemplateAdapterOperations<Object /*domain model*/, String, ModelEntity /*adapter model*/> /* implements Gateway from domain */ {
+public class DynamoDBTemplateAdapter extends TemplateAdapterOperations<Event, String, EventEntity>
+        implements EventCreator {
 
-    public DynamoDBTemplateAdapter(DynamoDbEnhancedAsyncClient connectionFactory, ObjectMapper mapper) {
-        /**
-         *  Could be use mapper.mapBuilder if your domain model implement builder pattern
-         *  super(repository, mapper, d -> mapper.mapBuilder(d,ObjectModel.ObjectModelBuilder.class).build());
-         *  Or using mapper.map with the class of the object model
-         */
-        super(connectionFactory, mapper, d -> mapper.map(d, Object.class /*domain model*/), "table_name", "secondary_index" /*index is optional*/);
+    public DynamoDBTemplateAdapter(DynamoDbEnhancedAsyncClient connectionFactory,
+                                   ObjectMapper mapper,
+                                   DynamoDBProperties properties) {
+        super(connectionFactory, mapper, DynamoDBTemplateAdapter::toDomain, properties.tables().events());
     }
 
-    public Mono<List<Object /*domain model*/>> getEntityBySomeKeys(String partitionKey, String sortKey) {
-        QueryEnhancedRequest queryExpression = generateQueryExpression(partitionKey, sortKey);
-        return query(queryExpression);
+    @Override
+    protected EventEntity toEntity(Event event) {
+        return new EventEntity(event.id(), event.name(), event.venue(), event.startsAt(),
+                event.finishesAt(), event.capacity(), event.createdAt());
     }
 
-    public Mono<List<Object /*domain model*/>> getEntityBySomeKeysByIndex(String partitionKey, String sortKey) {
-        QueryEnhancedRequest queryExpression = generateQueryExpression(partitionKey, sortKey);
-        return queryByIndex(queryExpression, "secondary_index" /*index is optional if you define in constructor*/);
-    }
-
-    private QueryEnhancedRequest generateQueryExpression(String partitionKey, String sortKey) {
-        return QueryEnhancedRequest.builder()
-                .queryConditional(QueryConditional.keyEqualTo(Key.builder().partitionValue(partitionKey).build()))
-                .queryConditional(QueryConditional.sortGreaterThanOrEqualTo(Key.builder().sortValue(sortKey).build()))
-                .build();
+    private static Event toDomain(EventEntity entity) {
+        return new Event(entity.getId(), entity.getName(), entity.getVenue(), entity.getStartsAt(),
+                entity.getFinishesAt(), entity.getCapacity(), entity.getCreatedAt());
     }
 }
