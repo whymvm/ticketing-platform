@@ -202,6 +202,145 @@
           ]
         },
         {
+          "name": "Retrieve event",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200 OK', () => pm.response.to.have.status(200));",
+                  "const event = pm.response.json();",
+                  "pm.test('returns the requested event', () => {",
+                  "    pm.expect(event.id).to.eql(pm.collectionVariables.get('eventId'));",
+                  "    pm.expect(event.name).to.eql('Rock Concert');",
+                  "    pm.expect(event.capacity).to.eql(5000);",
+                  "});",
+                  "pm.test('returns its inventory', () => {",
+                  "    pm.expect(event.inventory).to.eql({ available: 5000, reserved: 0, pendingConfirmation: 0, sold: 0, complimentary: 0 });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{eventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{eventId}}"
+              ]
+            },
+            "description": "Retrieves an event by its id. Run \"Create event\" first: it stores the id in {{eventId}}."
+          },
+          "response": [
+            {
+              "name": "Retrieve event",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{eventId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{eventId}}"
+                  ]
+                },
+                "description": "Retrieves an event by its id. Run \"Create event\" first: it stores the id in {{eventId}}."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"55793d16-5edf-4d3b-95fe-41e432bde47b\",\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"2026-12-05T01:00:00Z\",\n  \"finishesAt\": \"2026-12-05T04:00:00Z\",\n  \"capacity\": 5000,\n  \"inventory\": {\n    \"available\": 5000,\n    \"reserved\": 0,\n    \"pendingConfirmation\": 0,\n    \"sold\": 0,\n    \"complimentary\": 0\n  },\n  \"createdAt\": \"2026-10-10T21:00:05.815356710Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve event - not found",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('returns a problem detail', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "});",
+                  "pm.test('returns code EVENT_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('EVENT_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/00000000-0000-0000-0000-000000000000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "00000000-0000-0000-0000-000000000000"
+              ]
+            },
+            "description": "Requests an id that does not exist."
+          },
+          "response": [
+            {
+              "name": "Retrieve event - not found",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/00000000-0000-0000-0000-000000000000",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "00000000-0000-0000-0000-000000000000"
+                  ]
+                },
+                "description": "Requests an id that does not exist."
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"no event found with id 00000000-0000-0000-0000-000000000000\",\n  \"instance\": \"/api/v1/events/00000000-0000-0000-0000-000000000000\",\n  \"status\": 404,\n  \"title\": \"Not Found\",\n  \"code\": \"EVENT_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
           "name": "Create event - validation errors",
           "description": "Each request breaks one rule and checks the error code returned by the API.",
           "item": [

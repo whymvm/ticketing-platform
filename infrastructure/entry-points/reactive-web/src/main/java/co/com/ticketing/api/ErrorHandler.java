@@ -1,5 +1,6 @@
 package co.com.ticketing.api;
 
+import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.exception.EventStartsInThePastException;
 import co.com.ticketing.model.exception.InvalidEventCapacityException;
 import co.com.ticketing.model.exception.InvalidEventNameException;
@@ -36,6 +37,7 @@ public class ErrorHandler {
             case EventStartsInThePastException e ->
                     problem(ErrorCode.EVENT_STARTS_IN_THE_PAST, e.getMessage(), request);
             case InvalidEventCapacityException e -> problem(ErrorCode.INVALID_EVENT_CAPACITY, e.getMessage(), request);
+            case EventNotFoundException e -> problem(ErrorCode.EVENT_NOT_FOUND, e.getMessage(), request);
             case MissingRequestBodyException e -> problem(ErrorCode.MISSING_REQUEST_BODY, e.getMessage(), request);
             case ServerWebInputException _ -> problem(ErrorCode.MALFORMED_REQUEST_BODY, null, request);
             // Keeps the status code of framework errors

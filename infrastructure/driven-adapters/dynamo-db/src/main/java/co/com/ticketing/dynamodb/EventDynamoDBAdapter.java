@@ -3,21 +3,23 @@ package co.com.ticketing.dynamodb;
 import co.com.ticketing.dynamodb.config.DynamoDBProperties;
 import co.com.ticketing.model.event.Event;
 import co.com.ticketing.model.event.gateways.EventCreator;
+import co.com.ticketing.model.event.gateways.EventRetriever;
 import co.com.ticketing.model.exception.EventAlreadyExistsException;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
 import software.amazon.awssdk.enhanced.dynamodb.Expression;
+import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 /**
- * Stores events in DynamoDB.
+ * Stores and retrieves events in DynamoDB.
  */
 @Repository
-public class EventDynamoDBAdapter implements EventCreator {
+public class EventDynamoDBAdapter implements EventCreator, EventRetriever {
 
     // Makes the put fail instead of overwriting an existing event with the same id
     private static final Expression ID_NOT_EXISTS = Expression.builder()
@@ -36,6 +38,12 @@ public class EventDynamoDBAdapter implements EventCreator {
         return Mono.fromFuture(() -> table.putItem(newItemRequest(event)))
                 .onErrorMap(ConditionalCheckFailedException.class, conditionalCheckFailedException -> new EventAlreadyExistsException(event.id()))
                 .thenReturn(event);
+    }
+
+    @Override
+    public Mono<Event> findById(String id) {
+        return Mono.fromFuture(() -> table.getItem(Key.builder().partitionValue(id).build()))
+                .map(EventEntity::toDomain);
     }
 
     private static PutItemEnhancedRequest<EventEntity> newItemRequest(Event event) {

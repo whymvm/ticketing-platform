@@ -2,6 +2,7 @@ package co.com.ticketing.api;
 
 import co.com.ticketing.model.event.Event;
 import co.com.ticketing.model.event.Inventory;
+import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.exception.EventStartsInThePastException;
 import co.com.ticketing.model.exception.InvalidEventCapacityException;
 import co.com.ticketing.model.exception.InvalidEventNameException;
@@ -9,6 +10,7 @@ import co.com.ticketing.model.exception.InvalidEventScheduleException;
 import co.com.ticketing.model.exception.InvalidEventVenueException;
 import co.com.ticketing.model.event.NewEvent;
 import co.com.ticketing.usecase.createevent.CreateEventUseCase;
+import co.com.ticketing.usecase.retrieveevent.RetrieveEventUseCase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -43,6 +45,9 @@ class RouterRestTest {
 
     @MockitoBean
     private CreateEventUseCase createEventUseCase;
+
+    @MockitoBean
+    private RetrieveEventUseCase retrieveEventUseCase;
 
     @Test
     void createEventReturns201WithLocationAndBody() {
@@ -145,6 +150,54 @@ class RouterRestTest {
                 .uri("/api/v1/events")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(VALID_BODY)
+                .exchange()
+                .expectStatus().is5xxServerError()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("INTERNAL_ERROR")
+                .jsonPath("$.detail").isEqualTo("Unexpected error");
+    }
+
+    @Test
+    void retrieveEventReturns200WithTheEventAndItsInventory() {
+        Event event = new Event("e-1", "Concert", "Arena", Instant.parse("2026-12-05T01:00:00Z"),
+                Instant.parse("2026-12-05T04:00:00Z"), 5000, new Inventory(4000, 600, 200, 150, 50),
+                Instant.parse("2026-10-09T12:00:00Z"));
+        when(retrieveEventUseCase.run("e-1")).thenReturn(Mono.just(event));
+
+        webTestClient.get()
+                .uri("/api/v1/events/e-1")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentType(MediaType.APPLICATION_JSON)
+                .expectBody()
+                .jsonPath("$.id").isEqualTo("e-1")
+                .jsonPath("$.name").isEqualTo("Concert")
+                .jsonPath("$.capacity").isEqualTo(5000)
+                .jsonPath("$.inventory.available").isEqualTo(4000)
+                .jsonPath("$.inventory.sold").isEqualTo(150);
+    }
+
+    @Test
+    void retrieveEventReturns404WhenTheEventDoesNotExist() {
+        when(retrieveEventUseCase.run("missing")).thenReturn(Mono.error(new EventNotFoundException("missing")));
+
+        webTestClient.get()
+                .uri("/api/v1/events/missing")
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("EVENT_NOT_FOUND")
+                .jsonPath("$.detail").isEqualTo("no event found with id missing")
+                .jsonPath("$.instance").isEqualTo("/api/v1/events/missing");
+    }
+
+    @Test
+    void retrieveEventReturns500WithoutLeakingInternalDetails() {
+        when(retrieveEventUseCase.run("e-1")).thenReturn(Mono.error(new IllegalStateException("dynamo down")));
+
+        webTestClient.get()
+                .uri("/api/v1/events/e-1")
                 .exchange()
                 .expectStatus().is5xxServerError()
                 .expectBody()
