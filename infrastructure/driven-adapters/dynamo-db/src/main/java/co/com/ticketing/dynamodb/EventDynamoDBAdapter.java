@@ -9,7 +9,6 @@ import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
-import software.amazon.awssdk.enhanced.dynamodb.Expression;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
@@ -20,12 +19,6 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
  */
 @Repository
 public class EventDynamoDBAdapter implements EventCreator, EventRetriever {
-
-    // Makes the put fail instead of overwriting an existing event with the same id
-    private static final Expression ID_NOT_EXISTS = Expression.builder()
-            .expression("attribute_not_exists(#id)")
-            .putExpressionName("#id", "id")
-            .build();
 
     private final DynamoDbAsyncTable<EventEntity> table;
 
@@ -49,7 +42,7 @@ public class EventDynamoDBAdapter implements EventCreator, EventRetriever {
     private static PutItemEnhancedRequest<EventEntity> newItemRequest(Event event) {
         return PutItemEnhancedRequest.builder(EventEntity.class)
                 .item(EventEntity.from(event))
-                .conditionExpression(ID_NOT_EXISTS)
+                .conditionExpression(DynamoDBExpressions.ID_NOT_EXISTS)
                 .build();
     }
 }
