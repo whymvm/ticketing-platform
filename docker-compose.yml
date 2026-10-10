@@ -49,8 +49,6 @@ services:
       AWS_ACCESS_KEY_ID: test        # dummy LocalStack credentials, not secrets
       AWS_SECRET_ACCESS_KEY: test
       EVENTS_TABLE: local-ticketing-events
-      QUEUE_RESERVATIONS_URL: http://localstack:4566/000000000000/local-ticketing-reservations
-      QUEUE_PAYMENTS_URL: http://localstack:4566/000000000000/local-ticketing-payments
     ports:
       - "8080:8080"
     depends_on:

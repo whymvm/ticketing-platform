@@ -30,18 +30,3 @@ aws:
     endpoint: ${aws.endpoint}
     tables:
       events: ${EVENTS_TABLE:}
-entrypoint:
-  sqs:
-    region: ${aws.region}
-    endpoint: ${aws.endpoint}
-    queueUrl: ${QUEUE_RESERVATIONS_URL:}
-    waitTimeSeconds: 20
-    maxNumberOfMessages: 10
-    numberOfThreads: 1
-adapter:
-  sqs:
-    region: ${aws.region}
-    endpoint: ${aws.endpoint}
-    queues:
-      reservations: ${QUEUE_RESERVATIONS_URL:}
-      payments: ${QUEUE_PAYMENTS_URL:}
