@@ -4,11 +4,14 @@ import co.com.ticketing.model.exception.ConcurrencyConflictException;
 import co.com.ticketing.model.exception.EventClosedException;
 import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.exception.EventStartsInThePastException;
+import co.com.ticketing.model.exception.IdempotencyKeyReusedException;
 import co.com.ticketing.model.exception.InvalidCustomerException;
 import co.com.ticketing.model.exception.InvalidEventCapacityException;
 import co.com.ticketing.model.exception.InvalidEventNameException;
 import co.com.ticketing.model.exception.InvalidEventScheduleException;
 import co.com.ticketing.model.exception.InvalidEventVenueException;
+import co.com.ticketing.model.exception.InvalidIdempotencyKeyException;
+import co.com.ticketing.model.exception.MissingIdempotencyKeyException;
 import co.com.ticketing.model.exception.InvalidOrderEventException;
 import co.com.ticketing.model.exception.InvalidOrderQuantityException;
 import co.com.ticketing.model.exception.OrderNotFoundException;
@@ -51,6 +54,11 @@ public class ErrorHandler {
             case InvalidOrderEventException e -> problem(ErrorCode.INVALID_ORDER_EVENT, e.getMessage(), request);
             case InvalidCustomerException e -> problem(ErrorCode.INVALID_CUSTOMER, e.getMessage(), request);
             case OrderNotFoundException e -> problem(ErrorCode.ORDER_NOT_FOUND, e.getMessage(), request);
+            case MissingIdempotencyKeyException e ->
+                    problem(ErrorCode.IDEMPOTENCY_KEY_REQUIRED, e.getMessage(), request);
+            case InvalidIdempotencyKeyException e ->
+                    problem(ErrorCode.INVALID_IDEMPOTENCY_KEY, e.getMessage(), request);
+            case IdempotencyKeyReusedException e -> problem(ErrorCode.IDEMPOTENCY_KEY_REUSED, e.getMessage(), request);
             case ReservationExpiredException e -> problem(ErrorCode.RESERVATION_EXPIRED, e.getMessage(), request);
             case OrderNotReservedException e -> problem(ErrorCode.ORDER_NOT_RESERVED, e.getMessage(), request);
             case ConcurrencyConflictException e ->

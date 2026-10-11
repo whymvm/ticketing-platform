@@ -52,7 +52,7 @@ class OrderHistoryDynamoDBAdapterTest {
     void setUp() {
         when(client.table(eq(TABLE), any(TableSchema.class))).thenReturn(table);
         adapter = new OrderHistoryDynamoDBAdapter(client, new DynamoDBProperties("us-east-1", null,
-                new DynamoDBProperties.Tables("events", "orders", TABLE)));
+                new DynamoDBProperties.Tables("events", "orders", TABLE, "local-ticketing-idempotency")));
     }
 
     @Test

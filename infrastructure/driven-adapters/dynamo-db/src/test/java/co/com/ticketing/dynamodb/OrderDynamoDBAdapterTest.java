@@ -1,8 +1,11 @@
 package co.com.ticketing.dynamodb;
 
 import co.com.ticketing.dynamodb.config.DynamoDBProperties;
+import co.com.ticketing.model.exception.DuplicateRequestException;
 import co.com.ticketing.model.exception.OrderAlreadyExistsException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
+import co.com.ticketing.model.order.IdempotencyKey;
+import co.com.ticketing.model.order.IdempotencyRecord;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectionReason;
@@ -53,8 +56,10 @@ class OrderDynamoDBAdapterTest {
 
     private static final String TABLE = "local-ticketing-orders";
     private static final String HISTORY_TABLE = "local-ticketing-order-history";
+    private static final String IDEMPOTENCY_TABLE = "local-ticketing-idempotency";
     private static final Instant CREATED_AT = Instant.parse("2026-10-10T12:00:00Z");
     private static final QueuedOrder ORDER = new QueuedOrder(new OrderDetails("o-1", "e-1", "c-1", 2, CREATED_AT));
+    private static final IdempotencyRecord RECORD = IdempotencyRecord.of(new IdempotencyKey("c-1", "key-0001"), ORDER);
 
     @Mock
     private DynamoDbEnhancedAsyncClient client;
@@ -76,19 +81,19 @@ class OrderDynamoDBAdapterTest {
         when(client.table(eq(TABLE), any(TableSchema.class))).thenReturn(table);
         when(table.index("expiring-orders")).thenReturn(expiringOrders);
         adapter = new OrderDynamoDBAdapter(client, lowLevelClient,
-                new DynamoDBProperties("us-east-1", null, new DynamoDBProperties.Tables("events", TABLE, HISTORY_TABLE)));
+                new DynamoDBProperties("us-east-1", null, new DynamoDBProperties.Tables("events", TABLE, HISTORY_TABLE, IDEMPOTENCY_TABLE)));
     }
 
     @Test
-    void saveWritesTheOrderAndItsFirstHistoryEntryInOneTransaction() {
+    void saveWritesTheOrderItsFirstHistoryEntryAndItsKeyInOneTransaction() {
         allowTransactions();
 
-        StepVerifier.create(adapter.save(ORDER))
+        StepVerifier.create(adapter.save(ORDER, RECORD))
                 .expectNext(ORDER)
                 .verifyComplete();
 
         TransactWriteItemsRequest request = capturedTransaction();
-        assertThat(request.transactItems()).hasSize(2);
+        assertThat(request.transactItems()).hasSize(3);
 
         Put order = request.transactItems().get(0).put();
         assertThat(order.tableName()).isEqualTo(TABLE);
@@ -111,13 +116,34 @@ class OrderDynamoDBAdapterTest {
                 .containsEntry("toStatus", AttributeValue.fromS("QUEUED"))
                 .containsEntry("reason", AttributeValue.fromS("ORDER_PLACED"))
                 .doesNotContainKey("fromStatus");
+
+        Put key = request.transactItems().get(2).put();
+        assertThat(key.tableName()).isEqualTo(IDEMPOTENCY_TABLE);
+        assertThat(key.conditionExpression()).isEqualTo("attribute_not_exists(#key) OR #ttl < :now");
+        assertThat(key.expressionAttributeValues())
+                .containsEntry(":now", AttributeValue.fromN(String.valueOf(CREATED_AT.getEpochSecond())));
+        assertThat(key.item())
+                .containsEntry("idempotencyKey", AttributeValue.fromS("c-1#key-0001"))
+                .containsEntry("orderId", AttributeValue.fromS("o-1"))
+                .containsEntry("ttl", AttributeValue.fromN(String.valueOf(CREATED_AT.plusSeconds(86400).getEpochSecond())));
+    }
+
+    @Test
+    void saveFailsWithDuplicateRequestWhenAnotherRequestTookTheKeyFirst() {
+        cancelWith("None", "None", "ConditionalCheckFailed");
+
+        StepVerifier.create(adapter.save(ORDER, RECORD))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(DuplicateRequestException.class)
+                        .hasMessage("another request with the key c-1#key-0001 was processed at the same time"))
+                .verify();
     }
 
     @Test
     void saveFailsWithOrderAlreadyExistsWhenTheIdIsTaken() {
         cancelWith("ConditionalCheckFailed", "None");
 
-        StepVerifier.create(adapter.save(ORDER))
+        StepVerifier.create(adapter.save(ORDER, RECORD))
                 .expectErrorSatisfies(error -> assertThat(error)
                         .isInstanceOf(OrderAlreadyExistsException.class)
                         .hasMessage("an order with id o-1 already exists"))
@@ -129,7 +155,7 @@ class OrderDynamoDBAdapterTest {
         when(lowLevelClient.transactWriteItems(any(TransactWriteItemsRequest.class)))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("dynamo down")));
 
-        StepVerifier.create(adapter.save(ORDER))
+        StepVerifier.create(adapter.save(ORDER, RECORD))
                 .expectErrorMessage("dynamo down")
                 .verify();
     }
@@ -138,14 +164,14 @@ class OrderDynamoDBAdapterTest {
     void saveKeepsOtherCancellations() {
         cancelWith("None", "ConditionalCheckFailed");
 
-        StepVerifier.create(adapter.save(ORDER))
+        StepVerifier.create(adapter.save(ORDER, RECORD))
                 .expectError(TransactionCanceledException.class)
                 .verify();
     }
 
     @Test
     void saveDoesNotWriteUntilSubscribed() {
-        Mono<QueuedOrder> pending = adapter.save(ORDER);
+        Mono<QueuedOrder> pending = adapter.save(ORDER, RECORD);
 
         verifyNoInteractions(lowLevelClient);
         assertThat(pending).isNotNull();

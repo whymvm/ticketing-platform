@@ -1,8 +1,10 @@
 package co.com.ticketing.dynamodb;
 
 import co.com.ticketing.dynamodb.config.DynamoDBProperties;
+import co.com.ticketing.model.exception.DuplicateRequestException;
 import co.com.ticketing.model.exception.OrderAlreadyExistsException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
+import co.com.ticketing.model.order.IdempotencyRecord;
 import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.OrderStatus;
 import co.com.ticketing.model.order.QueuedOrder;
@@ -30,6 +32,8 @@ import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledExcepti
 import software.amazon.awssdk.services.dynamodb.model.Update;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import static co.com.ticketing.dynamodb.DynamoDBExpressions.QUEUED_VALUE;
@@ -45,8 +49,9 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
 
     private static final TableSchema<OrderEntity> SCHEMA = TableSchema.fromBean(OrderEntity.class);
 
-    // Position of the order in each transaction, also used to read its cancellation reason
+    // Position of each item in the transactions, also used to read its cancellation reason
     private static final int ORDER_ITEM = 0;
+    private static final int IDEMPOTENCY_ITEM = 2;
 
     private final DynamoDbAsyncTable<OrderEntity> table;
     private final DynamoDbAsyncIndex<OrderEntity> expiringOrders;
@@ -61,11 +66,11 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
         this.client = client;
     }
 
+    // The order, its first history entry and the idempotency key are written together, or none of them
     @Override
-    public Mono<QueuedOrder> save(QueuedOrder order) {
-        return transaction(newOrder(order), order)
-                .onErrorMap(OrderDynamoDBAdapter::orderConditionFailed,
-                        _ -> new OrderAlreadyExistsException(order.details().id()))
+    public Mono<QueuedOrder> save(QueuedOrder order, IdempotencyRecord record) {
+        return transaction(newOrder(order), order, IdempotencyWrites.claim(tables.idempotency(), record))
+                .onErrorMap(TransactionCanceledException.class, error -> saveCancellationCause(error, order, record))
                 .thenReturn(order);
     }
 
@@ -100,9 +105,12 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
                 .thenReturn(order);
     }
 
-    private Mono<Void> transaction(TransactWriteItem orderChange, Order order) {
+    private Mono<Void> transaction(TransactWriteItem orderChange, Order order, TransactWriteItem... otherItems) {
+        List<TransactWriteItem> items = new ArrayList<>(List.of(orderChange,
+                OrderHistoryWrites.record(tables.orderHistory(), order)));
+        items.addAll(List.of(otherItems));
         return Mono.fromFuture(() -> client.transactWriteItems(TransactWriteItemsRequest.builder()
-                        .transactItems(orderChange, OrderHistoryWrites.record(tables.orderHistory(), order))
+                        .transactItems(items)
                         .build()))
                 .then();
     }
@@ -135,6 +143,17 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
                                 ":updatedAt", AttributeValue.fromS(order.updatedAt().toString())))
                         .build())
                 .build();
+    }
+
+    private static Throwable saveCancellationCause(TransactionCanceledException error, QueuedOrder order,
+                                                   IdempotencyRecord record) {
+        if (TransactionCancellation.failedCondition(error, IDEMPOTENCY_ITEM)) {
+            return new DuplicateRequestException(record.key());
+        }
+        if (TransactionCancellation.failedCondition(error, ORDER_ITEM)) {
+            return new OrderAlreadyExistsException(order.details().id());
+        }
+        return error;
     }
 
     private static boolean orderConditionFailed(Throwable error) {

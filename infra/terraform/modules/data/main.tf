@@ -85,3 +85,27 @@ resource "aws_dynamodb_table" "order_history" {
     enabled = var.point_in_time_recovery
   }
 }
+
+# Which order each Idempotency-Key created, for 24 hours. The key is scoped to its customer ("<customerId>#<key>").
+# DynamoDB deletes expired records with its native TTL; it may do it late, so the application ignores expired
+# records and the write condition lets a new request take an expired key.
+resource "aws_dynamodb_table" "idempotency" {
+  name                        = "${var.name_prefix}idempotency"
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "idempotencyKey"
+  deletion_protection_enabled = var.deletion_protection
+
+  attribute {
+    name = "idempotencyKey"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+
+  point_in_time_recovery {
+    enabled = var.point_in_time_recovery
+  }
+}

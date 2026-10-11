@@ -10,7 +10,10 @@ import co.com.ticketing.model.exception.InvalidEventCapacityException;
 import co.com.ticketing.model.exception.InvalidEventNameException;
 import co.com.ticketing.model.exception.InvalidEventScheduleException;
 import co.com.ticketing.model.exception.InvalidEventVenueException;
+import co.com.ticketing.model.exception.IdempotencyKeyReusedException;
 import co.com.ticketing.model.exception.InvalidCustomerException;
+import co.com.ticketing.model.exception.InvalidIdempotencyKeyException;
+import co.com.ticketing.model.exception.MissingIdempotencyKeyException;
 import co.com.ticketing.model.exception.InvalidOrderEventException;
 import co.com.ticketing.model.exception.InvalidOrderQuantityException;
 import co.com.ticketing.model.exception.OrderNotFoundException;
@@ -19,6 +22,7 @@ import co.com.ticketing.model.exception.ReservationExpiredException;
 import co.com.ticketing.model.order.OrderStatus;
 import co.com.ticketing.model.order.NewOrder;
 import co.com.ticketing.model.order.OrderDetails;
+import co.com.ticketing.model.order.OrderPlacement;
 import co.com.ticketing.model.order.OrderHistoryEntry;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectionReason;
@@ -319,16 +323,20 @@ class RouterRestTest {
 
     @Test
     void placeOrderReturns202WithLocationAndTheQueuedOrder() {
-        when(placeOrderUseCase.run(new NewOrder("e-1", 2), "c-1")).thenReturn(Mono.just(QUEUED_ORDER));
+        when(placeOrderUseCase.run(new NewOrder("e-1", 2), "c-1", "key-0001"))
+                .thenReturn(Mono.just(OrderPlacement.created(QUEUED_ORDER)));
 
         webTestClient.post()
                 .uri("/api/v1/orders")
                 .header("X-Customer-Id", "c-1")
+                .header("Idempotency-Key", "key-0001")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("{\"eventId\":\"e-1\",\"quantity\":2}")
                 .exchange()
                 .expectStatus().isAccepted()
                 .expectHeader().location("/api/v1/orders/o-1")
+                .expectHeader().valueEquals("Retry-After", "1")
+                .expectHeader().valueEquals("Idempotent-Replayed", "false")
                 .expectBody()
                 .jsonPath("$.id").isEqualTo("o-1")
                 .jsonPath("$.status").isEqualTo("QUEUED")
@@ -444,22 +452,82 @@ class RouterRestTest {
     }
 
     @Test
+    void placeOrderMarksAReplayedOrderAndReturnsItsCurrentState() {
+        var reserved = QUEUED_ORDER.reserve(Instant.parse("2026-10-10T12:00:01Z"), Duration.ofMinutes(10));
+        when(placeOrderUseCase.run(new NewOrder("e-1", 2), "c-1", "key-0001"))
+                .thenReturn(Mono.just(OrderPlacement.replayed(reserved)));
+
+        webTestClient.post()
+                .uri("/api/v1/orders")
+                .header("X-Customer-Id", "c-1")
+                .header("Idempotency-Key", "key-0001")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"eventId\":\"e-1\",\"quantity\":2}")
+                .exchange()
+                .expectStatus().isAccepted()
+                .expectHeader().location("/api/v1/orders/o-1")
+                .expectHeader().valueEquals("Idempotent-Replayed", "true")
+                .expectBody()
+                .jsonPath("$.status").isEqualTo("RESERVED");
+    }
+
+    @Test
     void placeOrderUsesTheDefaultCustomerWhenTheHeaderIsMissing() {
-        when(placeOrderUseCase.run(new NewOrder("e-1", 2), "local-customer")).thenReturn(Mono.just(QUEUED_ORDER));
+        when(placeOrderUseCase.run(new NewOrder("e-1", 2), "local-customer", "key-0001"))
+                .thenReturn(Mono.just(OrderPlacement.created(QUEUED_ORDER)));
+
+        webTestClient.post()
+                .uri("/api/v1/orders")
+                .header("Idempotency-Key", "key-0001")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"eventId\":\"e-1\",\"quantity\":2}")
+                .exchange()
+                .expectStatus().isAccepted();
+
+        verify(placeOrderUseCase).run(new NewOrder("e-1", 2), "local-customer", "key-0001");
+    }
+
+    @Test
+    void placeOrderPassesAMissingKeyToTheUseCase() {
+        when(placeOrderUseCase.run(new NewOrder("e-1", 2), "local-customer", null))
+                .thenReturn(Mono.error(new MissingIdempotencyKeyException()));
 
         webTestClient.post()
                 .uri("/api/v1/orders")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("{\"eventId\":\"e-1\",\"quantity\":2}")
                 .exchange()
-                .expectStatus().isAccepted();
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("IDEMPOTENCY_KEY_REQUIRED");
+    }
 
-        verify(placeOrderUseCase).run(new NewOrder("e-1", 2), "local-customer");
+    static Stream<Arguments> idempotencyErrors() {
+        return Stream.of(
+                Arguments.of(new InvalidIdempotencyKeyException(8, 64), 400, "INVALID_IDEMPOTENCY_KEY"),
+                Arguments.of(new IdempotencyKeyReusedException(), 422, "IDEMPOTENCY_KEY_REUSED"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("idempotencyErrors")
+    void placeOrderMapsEachIdempotencyErrorToItsOwnCode(RuntimeException error, int status, String code) {
+        when(placeOrderUseCase.run(any(NewOrder.class), any(), any())).thenReturn(Mono.error(error));
+
+        webTestClient.post()
+                .uri("/api/v1/orders")
+                .header("Idempotency-Key", "key-0001")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"eventId\":\"e-1\",\"quantity\":1}")
+                .exchange()
+                .expectStatus().isEqualTo(status)
+                .expectBody()
+                .jsonPath("$.code").isEqualTo(code)
+                .jsonPath("$.detail").isEqualTo(error.getMessage());
     }
 
     @Test
     void placeOrderReturns404WhenTheEventDoesNotExist() {
-        when(placeOrderUseCase.run(any(NewOrder.class), any()))
+        when(placeOrderUseCase.run(any(NewOrder.class), any(), any()))
                 .thenReturn(Mono.error(new EventNotFoundException("e-9")));
 
         webTestClient.post()
@@ -474,7 +542,7 @@ class RouterRestTest {
 
     @Test
     void placeOrderReturns422WhenTheEventAlreadyStarted() {
-        when(placeOrderUseCase.run(any(NewOrder.class), any()))
+        when(placeOrderUseCase.run(any(NewOrder.class), any(), any()))
                 .thenReturn(Mono.error(new EventClosedException("e-1")));
 
         webTestClient.post()
@@ -498,7 +566,7 @@ class RouterRestTest {
     @ParameterizedTest
     @MethodSource("invalidOrders")
     void placeOrderMapsEachValidationErrorToItsOwnCode(RuntimeException error, String expectedCode) {
-        when(placeOrderUseCase.run(any(NewOrder.class), any())).thenReturn(Mono.error(error));
+        when(placeOrderUseCase.run(any(NewOrder.class), any(), any())).thenReturn(Mono.error(error));
 
         webTestClient.post()
                 .uri("/api/v1/orders")
