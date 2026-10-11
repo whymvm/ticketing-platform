@@ -25,13 +25,8 @@ public class SQSConfig {
     @Bean
     public SQSListener sqsListener(@Qualifier(CLIENT) SqsAsyncClient client, SQSProperties properties,
                                    Function<Message, Mono<Void>> fn, MeterRegistry meterRegistry) {
-        return SQSListener.builder()
-                .client(client)
-                .properties(properties)
-                .processor(fn)
-                .meterRegistry(meterRegistry)
-                .build()
-                .start();
+        // Spring starts it when the application is ready and stops it on shutdown (SmartLifecycle)
+        return new SQSListener(client, properties, fn, meterRegistry);
     }
 
     @Bean(CLIENT)

@@ -5,6 +5,10 @@ spring:
     name: "TicketingPlatform"
   devtools:
     add-properties: false
+  lifecycle:
+    # Time each shutdown phase gets to finish. The SQS listener needs up to its poll wait time (10 s) plus the
+    # processing of the messages that poll brings
+    timeout-per-shutdown-phase: 15s
 springdoc:
   swagger-ui.path: "/v3/swagger-ui.html"
   api-docs.path: "/v3/api-docs"
@@ -42,7 +46,8 @@ entrypoint:
     region: ${aws.region}
     endpoint: ${aws.endpoint}
     queueUrl: ${QUEUE_RESERVATIONS_URL:}
-    waitTimeSeconds: 20 # long polling
+    # Long polling. On shutdown the listener waits for the open poll, so this also bounds how long stopping takes
+    waitTimeSeconds: 10
     maxNumberOfMessages: 10
     numberOfThreads: 1
   scheduler:
