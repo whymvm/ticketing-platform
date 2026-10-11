@@ -1171,6 +1171,16 @@
           "name": "Retrieve order",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Gives the queue consumer time to process the order",
+                  "setTimeout(() => {}, 3000);"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -1180,7 +1190,11 @@
                   "pm.test('returns the order placed before', () => {",
                   "    pm.expect(order.id).to.eql(pm.collectionVariables.get('orderId'));",
                   "    pm.expect(order.customerId).to.eql(pm.collectionVariables.get('customerId'));",
-                  "    pm.expect(order.status).to.be.oneOf(['QUEUED', 'RESERVED', 'REJECTED']);",
+                  "});",
+                  "pm.test('the consumer reserved its tickets for 10 minutes', () => {",
+                  "    pm.expect(order.status).to.eql('RESERVED');",
+                  "    const minutes = (new Date(order.expiresAt) - new Date(order.createdAt)) / 60000;",
+                  "    pm.expect(minutes).to.be.within(9.9, 10.1);",
                   "});"
                 ]
               }
@@ -1206,7 +1220,7 @@
                 "{{orderId}}"
               ]
             },
-            "description": "Returns the current state of the order created by \"Place order\". Only its customer can see it."
+            "description": "Returns the current state of the order created by \"Place order\". The queue consumer has already reserved its tickets for 10 minutes. Only its customer can see the order."
           },
           "response": [
             {
@@ -1231,7 +1245,7 @@
                     "{{orderId}}"
                   ]
                 },
-                "description": "Returns the current state of the order created by \"Place order\". Only its customer can see it."
+                "description": "Returns the current state of the order created by \"Place order\". The queue consumer has already reserved its tickets for 10 minutes. Only its customer can see the order."
               },
               "status": "OK",
               "code": 200,
@@ -1242,7 +1256,7 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"QUEUED\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"RESERVED\",\n  \"expiresAt\": \"2026-10-10T12:10:00Z\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
             }
           ]
         },
@@ -1591,6 +1605,289 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Sold out",
+      "description": "Shows an order that asks for more tickets than are left: it is accepted, and the queue consumer rejects it.",
+      "item": [
+        {
+          "name": "Create event - one ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('soldOutEventId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events"
+              ]
+            },
+            "description": "Creates an event with a single ticket, to show what happens when an order asks for more tickets than are left.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Small Show\",\n  \"venue\": \"Teatro Pablo Tobón\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Create event - one ticket",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "Creates an event with a single ticket, to show what happens when an order asks for more tickets than are left.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Small Show\",\n  \"venue\": \"Teatro Pablo Tobón\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d\",\n  \"name\": \"Small Show\",\n  \"venue\": \"Teatro Pablo Tobón\",\n  \"startsAt\": \"2026-11-09T01:00:00Z\",\n  \"finishesAt\": \"2026-11-09T04:00:00Z\",\n  \"capacity\": 1,\n  \"inventory\": {\n    \"available\": 1,\n    \"reserved\": 0,\n    \"pendingConfirmation\": 0,\n    \"sold\": 0,\n    \"complimentary\": 0\n  },\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Place order - more tickets than available",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 202 Accepted', () => pm.response.to.have.status(202));",
+                  "pm.collectionVariables.set('soldOutOrderId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Asks for 2 tickets of an event that only has 1. The order is accepted at once: the stock is checked later by the queue consumer.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{soldOutEventId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order - more tickets than available",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Asks for 2 tickets of an event that only has 1. The order is accepted at once: the stock is checked later by the queue consumer.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{soldOutEventId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a\",\n  \"eventId\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"QUEUED\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order - sold out",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Gives the queue consumer time to process the order",
+                  "setTimeout(() => {}, 3000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "const order = pm.response.json();",
+                  "pm.test('the consumer rejected the order because the tickets are sold out', () => {",
+                  "    pm.expect(order.status).to.eql('REJECTED');",
+                  "    pm.expect(order.rejectionReason).to.eql('SOLD_OUT');",
+                  "    pm.expect(order).to.not.have.property('expiresAt');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{soldOutOrderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{soldOutOrderId}}"
+              ]
+            },
+            "description": "The queue consumer found only 1 ticket for an order of 2, so it rejected the order."
+          },
+          "response": [
+            {
+              "name": "Retrieve order - sold out",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{soldOutOrderId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{soldOutOrderId}}"
+                  ]
+                },
+                "description": "The queue consumer found only 1 ticket for an order of 2, so it rejected the order."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a\",\n  \"eventId\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"REJECTED\",\n  \"rejectionReason\": \"SOLD_OUT\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        }
+      ]
     }
   ],
   "variable": [
@@ -1624,6 +1921,14 @@
     },
     {
       "key": "orderId",
+      "value": ""
+    },
+    {
+      "key": "soldOutEventId",
+      "value": ""
+    },
+    {
+      "key": "soldOutOrderId",
       "value": ""
     }
   ]
