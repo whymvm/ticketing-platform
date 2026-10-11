@@ -1360,6 +1360,7 @@
                   "    });",
                   "    pm.test('the consumer reserved its tickets for 10 minutes', () => {",
                   "        pm.expect(order.status).to.eql('RESERVED');",
+                  "        pm.expect(order.ticketStatus).to.eql('RESERVED');",
                   "        const minutes = (new Date(order.expiresAt) - new Date(order.createdAt)) / 60000;",
                   "        pm.expect(minutes).to.be.within(9.9, 10.1);",
                   "    });",
@@ -1799,12 +1800,14 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('returns 202', () => pm.response.to.have.status(202));",
                   "const order = pm.response.json();",
-                  "pm.test('the order is sold', () => {",
+                  "pm.test('the order waits for its payment for 5 minutes', () => {",
                   "    pm.expect(order.id).to.eql(pm.collectionVariables.get('orderId'));",
-                  "    pm.expect(order.status).to.eql('SOLD');",
-                  "    pm.expect(order).to.not.have.property('expiresAt');",
+                  "    pm.expect(order.status).to.eql('PENDING_CONFIRMATION');",
+                  "    pm.expect(order.ticketStatus).to.eql('PENDING_CONFIRMATION');",
+                  "    const minutes = (new Date(order.expiresAt) - new Date(order.updatedAt)) / 60000;",
+                  "    pm.expect(minutes).to.be.within(4.9, 5.1);",
                   "});"
                 ]
               }
@@ -1831,7 +1834,7 @@
                 "confirm"
               ]
             },
-            "description": "Confirms the purchase of the reserved order: its 2 tickets become sold."
+            "description": "Confirms the reserved order: its 2 tickets wait for the payment, which the payment provider notifies later (see \"Notify payment\"). If no payment arrives within 5 minutes, the order expires and the tickets go back to the inventory."
           },
           "response": [
             {
@@ -1857,10 +1860,10 @@
                     "confirm"
                   ]
                 },
-                "description": "Confirms the purchase of the reserved order: its 2 tickets become sold."
+                "description": "Confirms the reserved order: its 2 tickets wait for the payment, which the payment provider notifies later (see \"Notify payment\"). If no payment arrives within 5 minutes, the order expires and the tickets go back to the inventory."
               },
-              "status": "OK",
-              "code": 200,
+              "status": "Accepted",
+              "code": 202,
               "_postman_previewlanguage": "json",
               "header": [
                 {
@@ -1868,7 +1871,7 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"SOLD\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"PENDING_CONFIRMATION\",\n  \"ticketStatus\": \"PENDING_CONFIRMATION\",\n  \"expiresAt\": \"2026-10-10T12:06:00Z\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\",\n  \"updatedAt\": \"2026-10-10T12:01:00Z\"\n}"
             }
           ]
         },
@@ -1880,8 +1883,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
-                  "pm.test('returns the same sold order', () => pm.expect(pm.response.json().status).to.eql('SOLD'));"
+                  "pm.test('returns 202', () => pm.response.to.have.status(202));",
+                  "pm.test('returns the same order, still waiting for its payment', () => pm.expect(pm.response.json().status).to.eql('PENDING_CONFIRMATION'));"
                 ]
               }
             }
@@ -1907,7 +1910,7 @@
                 "confirm"
               ]
             },
-            "description": "Confirms the same order again, for example after a network retry. The API returns the sold order and sells nothing twice."
+            "description": "Confirms the same order again, for example after a network retry. The API returns the order as it is and does not hold the tickets twice."
           },
           "response": [
             {
@@ -1933,7 +1936,198 @@
                     "confirm"
                   ]
                 },
-                "description": "Confirms the same order again, for example after a network retry. The API returns the sold order and sells nothing twice."
+                "description": "Confirms the same order again, for example after a network retry. The API returns the order as it is and does not hold the tickets twice."
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"PENDING_CONFIRMATION\",\n  \"ticketStatus\": \"PENDING_CONFIRMATION\",\n  \"expiresAt\": \"2026-10-10T12:06:00Z\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\",\n  \"updatedAt\": \"2026-10-10T12:01:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Notify payment - without result",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 400', () => pm.response.to.have.status(400));",
+                  "pm.test('returns code INVALID_PAYMENT_NOTIFICATION', () => pm.expect(pm.response.json().code).to.eql('INVALID_PAYMENT_NOTIFICATION'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/payment",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "payment"
+              ]
+            },
+            "description": "A notification must say whether the payment was approved or declined.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Notify payment - without result",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/payment",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "payment"
+                  ]
+                },
+                "description": "A notification must say whether the payment was approved or declined.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"result is required and must be APPROVED or DECLINED\",\n  \"instance\": \"/api/v1/orders/6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f/payment\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"INVALID_PAYMENT_NOTIFICATION\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Notify payment - approved",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('the tickets are sold', () => {",
+                  "    pm.expect(pm.response.json().status).to.eql('SOLD');",
+                  "    pm.expect(pm.response.json().ticketStatus).to.eql('SOLD');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/payment",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "payment"
+              ]
+            },
+            "description": "Simulates the notification (webhook) of the payment provider: the payment was approved, so the tickets become sold.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"result\": \"APPROVED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Notify payment - approved",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/payment",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "payment"
+                  ]
+                },
+                "description": "Simulates the notification (webhook) of the payment provider: the payment was approved, so the tickets become sold.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"result\": \"APPROVED\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
               },
               "status": "OK",
               "code": 200,
@@ -1944,7 +2138,101 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"SOLD\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"SOLD\",\n  \"ticketStatus\": \"SOLD\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\",\n  \"updatedAt\": \"2026-10-10T12:01:30Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Notify payment - approved again",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('returns the same sold order', () => pm.expect(pm.response.json().status).to.eql('SOLD'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/payment",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "payment"
+              ]
+            },
+            "description": "Payment providers repeat their notifications. The same notification again returns the order as it is.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"result\": \"APPROVED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Notify payment - approved again",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/payment",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "payment"
+                  ]
+                },
+                "description": "Payment providers repeat their notifications. The same notification again returns the order as it is.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"result\": \"APPROVED\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"SOLD\",\n  \"ticketStatus\": \"SOLD\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\",\n  \"updatedAt\": \"2026-10-10T12:01:30Z\"\n}"
             }
           ]
         },
@@ -1958,10 +2246,10 @@
                 "exec": [
                   "pm.test('returns 200', () => pm.response.to.have.status(200));",
                   "const history = pm.response.json();",
-                  "pm.test('records the 3 transitions of a sold order, oldest first', () => {",
+                  "pm.test('records the 4 transitions of a sold order, oldest first', () => {",
                   "    pm.expect(history.orderId).to.eql(pm.collectionVariables.get('orderId'));",
                   "    const steps = history.transitions.map(t => `${t.fromStatus || '-'}>${t.toStatus}:${t.reason}`);",
-                  "    pm.expect(steps).to.eql(['->QUEUED:ORDER_PLACED', 'QUEUED>RESERVED:TICKETS_RESERVED', 'RESERVED>SOLD:ORDER_CONFIRMED']);",
+                  "    pm.expect(steps).to.eql(['->QUEUED:ORDER_PLACED', 'QUEUED>RESERVED:TICKETS_RESERVED', 'RESERVED>PENDING_CONFIRMATION:ORDER_CONFIRMED', 'PENDING_CONFIRMATION>SOLD:PAYMENT_APPROVED']);",
                   "});",
                   "pm.test('the transitions are in time order', () => {",
                   "    const times = history.transitions.map(t => new Date(t.occurredAt).getTime());",
@@ -2626,6 +2914,389 @@
                 }
               ],
               "body": "{\n  \"detail\": \"the Idempotency-Key header is required\",\n  \"instance\": \"/api/v1/orders\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"IDEMPOTENCY_KEY_REQUIRED\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Payment declined",
+      "description": "An order whose payment the provider declines: it is rejected and its tickets go back to the inventory.",
+      "item": [
+        {
+          "name": "Place order - to decline its payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 202', () => pm.response.to.have.status(202));",
+                  "pm.collectionVariables.set('declinedOrderId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Places another order, whose payment will be declined.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{$guid}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Places another order, whose payment will be declined.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                },
+                {
+                  "key": "Location",
+                  "value": "/api/v1/orders/055d55a0-fbe3-45ac-b706-10a48c14901d"
+                }
+              ],
+              "body": "{\n  \"id\": \"055d55a0-fbe3-45ac-b706-10a48c14901d\",\n  \"eventId\": \"1b1b2e02-3c00-465c-9dcb-d11b1d38157e\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"QUEUED\",\n  \"createdAt\": \"2026-10-10T23:07:44.366634460Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order - wait for the reservation",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Waits a moment before each attempt, so the queue consumer can process the order",
+                  "setTimeout(() => {}, 1000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// The consumer processes the order asynchronously: repeat this request while the order is still queued",
+                  "const order = pm.response.json();",
+                  "const attempts = Number(pm.collectionVariables.get('pollAttempts') || 0);",
+                  "if (order.status === 'QUEUED' && attempts < 10) {",
+                  "    pm.collectionVariables.set('pollAttempts', attempts + 1);",
+                  "    postman.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset('pollAttempts');",
+                  "    pm.test('the tickets are reserved', () => pm.expect(order.status).to.eql('RESERVED'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{declinedOrderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{declinedOrderId}}"
+              ]
+            },
+            "description": "Waits until the queue consumer reserves the tickets of the order."
+          },
+          "response": [
+            {
+              "name": "Retrieve order",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{declinedOrderId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{declinedOrderId}}"
+                  ]
+                },
+                "description": "Waits until the queue consumer reserves the tickets of the order."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"RESERVED\",\n  \"expiresAt\": \"2026-10-10T12:10:00Z\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Confirm order - to decline its payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 202', () => pm.response.to.have.status(202));",
+                  "pm.test('waits for its payment', () => pm.expect(pm.response.json().status).to.eql('PENDING_CONFIRMATION'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{declinedOrderId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{declinedOrderId}}",
+                "confirm"
+              ]
+            },
+            "description": "Confirms the order, so it waits for its payment."
+          },
+          "response": [
+            {
+              "name": "Confirm order - to decline its payment",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{declinedOrderId}}/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{declinedOrderId}}",
+                    "confirm"
+                  ]
+                },
+                "description": "Confirms the order, so it waits for its payment."
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"PENDING_CONFIRMATION\",\n  \"ticketStatus\": \"PENDING_CONFIRMATION\",\n  \"expiresAt\": \"2026-10-10T12:06:00Z\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\",\n  \"updatedAt\": \"2026-10-10T12:01:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Notify payment - declined",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "const order = pm.response.json();",
+                  "pm.test('the order is rejected and its tickets are available again', () => {",
+                  "    pm.expect(order.status).to.eql('REJECTED');",
+                  "    pm.expect(order.rejectionReason).to.eql('PAYMENT_DECLINED');",
+                  "    pm.expect(order.ticketStatus).to.eql('AVAILABLE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{declinedOrderId}}/payment",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{declinedOrderId}}",
+                "payment"
+              ]
+            },
+            "description": "The payment provider declined the payment: the order is rejected and its tickets are available again.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"result\": \"DECLINED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Notify payment - declined",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{declinedOrderId}}/payment",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{declinedOrderId}}",
+                    "payment"
+                  ]
+                },
+                "description": "The payment provider declined the payment: the order is rejected and its tickets are available again.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"result\": \"DECLINED\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"8b7a6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"REJECTED\",\n  \"ticketStatus\": \"AVAILABLE\",\n  \"rejectionReason\": \"PAYMENT_DECLINED\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\",\n  \"updatedAt\": \"2026-10-10T12:02:00Z\"\n}"
             }
           ]
         }
@@ -3365,6 +4036,10 @@
     },
     {
       "key": "placeOrderKey",
+      "value": ""
+    },
+    {
+      "key": "declinedOrderId",
       "value": ""
     }
   ]
