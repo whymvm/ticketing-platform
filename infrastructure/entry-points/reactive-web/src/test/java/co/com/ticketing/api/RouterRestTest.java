@@ -12,8 +12,8 @@ import co.com.ticketing.model.exception.InvalidCustomerException;
 import co.com.ticketing.model.exception.InvalidOrderEventException;
 import co.com.ticketing.model.exception.InvalidOrderQuantityException;
 import co.com.ticketing.model.order.NewOrder;
-import co.com.ticketing.model.order.Order;
-import co.com.ticketing.model.order.OrderStatus;
+import co.com.ticketing.model.order.OrderDetails;
+import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.event.NewEvent;
 import co.com.ticketing.usecase.createevent.CreateEventUseCase;
 import co.com.ticketing.usecase.placeorder.PlaceOrderUseCase;
@@ -215,8 +215,8 @@ class RouterRestTest {
                 .jsonPath("$.detail").isEqualTo("Unexpected error");
     }
 
-    private static final Order QUEUED_ORDER = new Order("o-1", "e-1", "c-1", 2, OrderStatus.QUEUED,
-            Instant.parse("2026-10-10T12:00:00Z"));
+    private static final QueuedOrder QUEUED_ORDER = new QueuedOrder(new OrderDetails("o-1", "e-1", "c-1", 2,
+            Instant.parse("2026-10-10T12:00:00Z")));
 
     @Test
     void placeOrderReturns202WithLocationAndTheQueuedOrder() {
@@ -233,7 +233,9 @@ class RouterRestTest {
                 .expectBody()
                 .jsonPath("$.id").isEqualTo("o-1")
                 .jsonPath("$.status").isEqualTo("QUEUED")
-                .jsonPath("$.customerId").isEqualTo("c-1");
+                .jsonPath("$.customerId").isEqualTo("c-1")
+                .jsonPath("$.expiresAt").doesNotExist()
+                .jsonPath("$.rejectionReason").doesNotExist();
     }
 
     @Test

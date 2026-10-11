@@ -2,8 +2,8 @@ package co.com.ticketing.dynamodb;
 
 import co.com.ticketing.dynamodb.config.DynamoDBProperties;
 import co.com.ticketing.model.exception.OrderAlreadyExistsException;
-import co.com.ticketing.model.order.Order;
-import co.com.ticketing.model.order.OrderStatus;
+import co.com.ticketing.model.order.OrderDetails;
+import co.com.ticketing.model.order.QueuedOrder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,7 +35,7 @@ class OrderDynamoDBAdapterTest {
 
     private static final String TABLE = "local-ticketing-orders";
     private static final Instant CREATED_AT = Instant.parse("2026-10-10T12:00:00Z");
-    private static final Order ORDER = new Order("o-1", "e-1", "c-1", 2, OrderStatus.QUEUED, CREATED_AT);
+    private static final QueuedOrder ORDER = new QueuedOrder(new OrderDetails("o-1", "e-1", "c-1", 2, CREATED_AT));
 
     @Mock
     private DynamoDbEnhancedAsyncClient client;
@@ -105,7 +105,7 @@ class OrderDynamoDBAdapterTest {
 
     @Test
     void saveDoesNotWriteUntilSubscribed() {
-        Mono<Order> pending = adapter.save(ORDER);
+        Mono<QueuedOrder> pending = adapter.save(ORDER);
 
         verifyNoInteractions(table);
         assertThat(pending).isNotNull();

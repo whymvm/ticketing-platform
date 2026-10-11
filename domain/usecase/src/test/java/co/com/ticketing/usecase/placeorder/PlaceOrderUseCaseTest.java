@@ -6,9 +6,9 @@ import co.com.ticketing.model.event.gateways.EventRetriever;
 import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.exception.InvalidOrderQuantityException;
 import co.com.ticketing.model.order.NewOrder;
-import co.com.ticketing.model.order.Order;
+import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.OrderPlaced;
-import co.com.ticketing.model.order.OrderStatus;
+import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.gateways.OrderCreator;
 import co.com.ticketing.model.order.gateways.OrderPublisher;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,17 +59,17 @@ class PlaceOrderUseCaseTest {
     @Test
     void savesTheOrderAndPublishesOrderPlaced() {
         when(eventRetriever.findById("e-1")).thenReturn(Mono.just(EVENT));
-        when(orderCreator.save(any(Order.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(orderCreator.save(any(QueuedOrder.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
         when(orderPublisher.publish(any(OrderPlaced.class))).thenReturn(Mono.empty());
 
         StepVerifier.create(useCase.run(new NewOrder("e-1", 2), "c-1"))
                 .assertNext(order -> {
-                    assertThat(order.id()).isNotBlank();
-                    assertThat(order.eventId()).isEqualTo("e-1");
-                    assertThat(order.customerId()).isEqualTo("c-1");
-                    assertThat(order.quantity()).isEqualTo(2);
-                    assertThat(order.status()).isEqualTo(OrderStatus.QUEUED);
-                    assertThat(order.createdAt()).isEqualTo(NOW);
+                    OrderDetails details = order.details();
+                    assertThat(details.id()).isNotBlank();
+                    assertThat(details.eventId()).isEqualTo("e-1");
+                    assertThat(details.customerId()).isEqualTo("c-1");
+                    assertThat(details.quantity()).isEqualTo(2);
+                    assertThat(details.createdAt()).isEqualTo(NOW);
                 })
                 .verifyComplete();
 
@@ -104,7 +104,7 @@ class PlaceOrderUseCaseTest {
     @Test
     void doesNotPublishWhenTheOrderCannotBeSaved() {
         when(eventRetriever.findById("e-1")).thenReturn(Mono.just(EVENT));
-        when(orderCreator.save(any(Order.class))).thenReturn(Mono.error(new IllegalStateException("db down")));
+        when(orderCreator.save(any(QueuedOrder.class))).thenReturn(Mono.error(new IllegalStateException("db down")));
 
         StepVerifier.create(useCase.run(new NewOrder("e-1", 1), "c-1"))
                 .expectErrorMessage("db down")
@@ -116,7 +116,7 @@ class PlaceOrderUseCaseTest {
     @Test
     void propagatesPublishingErrors() {
         when(eventRetriever.findById("e-1")).thenReturn(Mono.just(EVENT));
-        when(orderCreator.save(any(Order.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(orderCreator.save(any(QueuedOrder.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
         when(orderPublisher.publish(any(OrderPlaced.class)))
                 .thenReturn(Mono.error(new IllegalStateException("queue down")));
 

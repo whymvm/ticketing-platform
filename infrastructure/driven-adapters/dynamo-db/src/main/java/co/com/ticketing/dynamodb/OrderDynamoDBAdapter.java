@@ -2,7 +2,7 @@ package co.com.ticketing.dynamodb;
 
 import co.com.ticketing.dynamodb.config.DynamoDBProperties;
 import co.com.ticketing.model.exception.OrderAlreadyExistsException;
-import co.com.ticketing.model.order.Order;
+import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.gateways.OrderCreator;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
@@ -25,13 +25,13 @@ public class OrderDynamoDBAdapter implements OrderCreator {
     }
 
     @Override
-    public Mono<Order> save(Order order) {
+    public Mono<QueuedOrder> save(QueuedOrder order) {
         return Mono.fromFuture(() -> table.putItem(newItemRequest(order)))
-                .onErrorMap(ConditionalCheckFailedException.class, e -> new OrderAlreadyExistsException(order.id()))
+                .onErrorMap(ConditionalCheckFailedException.class, e -> new OrderAlreadyExistsException(order.details().id()))
                 .thenReturn(order);
     }
 
-    private static PutItemEnhancedRequest<OrderEntity> newItemRequest(Order order) {
+    private static PutItemEnhancedRequest<OrderEntity> newItemRequest(QueuedOrder order) {
         return PutItemEnhancedRequest.builder(OrderEntity.class)
                 .item(OrderEntity.from(order))
                 .conditionExpression(DynamoDBExpressions.ID_NOT_EXISTS)
