@@ -1,5 +1,6 @@
 package co.com.ticketing.dynamodb;
 
+import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.OrderStatus;
@@ -12,6 +13,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbBean;
 import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbPartitionKey;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbSecondaryPartitionKey;
+import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbSecondarySortKey;
 
 import java.time.Instant;
 
@@ -30,7 +33,10 @@ public class OrderEntity {
     private String customerId;
     private Integer quantity;
     private String status;
+    @Getter(onMethod_ = @DynamoDbSecondarySortKey(indexNames = ExpiringOrdersIndex.NAME))
     private Instant expiresAt;
+    @Getter(onMethod_ = @DynamoDbSecondaryPartitionKey(indexNames = ExpiringOrdersIndex.NAME))
+    private String expiryShard;
     private String rejectionReason;
     private Instant createdAt;
 
@@ -58,6 +64,7 @@ public class OrderEntity {
             case QUEUED -> new QueuedOrder(details);
             case RESERVED -> new ReservedOrder(details, expiresAt);
             case REJECTED -> new RejectedOrder(details, RejectionReason.valueOf(rejectionReason));
+            case EXPIRED -> new ExpiredOrder(details);
         };
     }
 }

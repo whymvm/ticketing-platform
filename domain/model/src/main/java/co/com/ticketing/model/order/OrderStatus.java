@@ -6,5 +6,6 @@ package co.com.ticketing.model.order;
 public enum OrderStatus {
     QUEUED,
     RESERVED,
-    REJECTED
+    REJECTED,
+    EXPIRED
 }

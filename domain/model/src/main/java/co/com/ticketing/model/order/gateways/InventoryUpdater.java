@@ -1,5 +1,6 @@
 package co.com.ticketing.model.order.gateways;
 
+import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.ReservedOrder;
 import reactor.core.publisher.Mono;
 
@@ -18,5 +19,15 @@ public interface InventoryUpdater {
      * @return the reserved order
      */
     Mono<ReservedOrder> reserveTickets(ReservedOrder order);
+
+    /**
+     * Moves the tickets of the order from reserved back to available and marks the order as expired, in one
+     * atomic write. Emits OrderAlreadyProcessedException if the order is no longer reserved, or
+     * ConcurrencyConflictException if a concurrent write got in the way.
+     *
+     * @param order the expired order
+     * @return the expired order
+     */
+    Mono<ExpiredOrder> releaseTickets(ExpiredOrder order);
 
 }

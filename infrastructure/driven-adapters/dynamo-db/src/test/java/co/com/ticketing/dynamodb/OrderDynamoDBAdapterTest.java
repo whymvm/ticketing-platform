@@ -12,14 +12,19 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
+import software.amazon.awssdk.core.async.SdkPublisher;
+import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncIndex;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
 import software.amazon.awssdk.enhanced.dynamodb.Expression;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
+import software.amazon.awssdk.enhanced.dynamodb.model.Page;
 import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
+import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
@@ -28,14 +33,16 @@ import software.amazon.awssdk.services.dynamodb.model.UpdateItemResponse;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -54,12 +61,16 @@ class OrderDynamoDBAdapterTest {
     @Mock
     private DynamoDbAsyncTable<OrderEntity> table;
 
+    @Mock
+    private DynamoDbAsyncIndex<OrderEntity> expiringOrders;
+
     private OrderDynamoDBAdapter adapter;
 
     @BeforeEach
     @SuppressWarnings("unchecked")
     void setUp() {
         when(client.table(eq(TABLE), any(TableSchema.class))).thenReturn(table);
+        when(table.index("expiring-orders")).thenReturn(expiringOrders);
         adapter = new OrderDynamoDBAdapter(client, lowLevelClient,
                 new DynamoDBProperties("us-east-1", null, new DynamoDBProperties.Tables("events", TABLE)));
     }
@@ -120,7 +131,7 @@ class OrderDynamoDBAdapterTest {
     void saveDoesNotWriteUntilSubscribed() {
         Mono<QueuedOrder> pending = adapter.save(ORDER);
 
-        verifyNoInteractions(table);
+        verify(table, never()).putItem(any(PutItemEnhancedRequest.class));
         assertThat(pending).isNotNull();
     }
 
@@ -156,6 +167,36 @@ class OrderDynamoDBAdapterTest {
         StepVerifier.create(adapter.findById("o-1"))
                 .expectNext(ORDER.reject(RejectionReason.SOLD_OUT))
                 .verifyComplete();
+    }
+
+    @Test
+    void findByIdRebuildsAnExpiredOrder() {
+        OrderEntity entity = OrderEntity.from(ORDER);
+        entity.setStatus("EXPIRED");
+        when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(entity));
+
+        StepVerifier.create(adapter.findById("o-1"))
+                .expectNext(ORDER.reserve(CREATED_AT, Duration.ofMinutes(10)).expire())
+                .verifyComplete();
+    }
+
+    @Test
+    void findExpiredReservationsReadsEveryShardAndKeepsOnlyReservedOrders() {
+        var reserved = ORDER.reserve(CREATED_AT, Duration.ofMinutes(10));
+        OrderEntity reservedEntity = OrderEntity.from(ORDER);
+        reservedEntity.setStatus("RESERVED");
+        reservedEntity.setExpiresAt(reserved.expiresAt());
+        // The index is updated asynchronously, so it may still return an order that just left RESERVED
+        OrderEntity staleEntity = OrderEntity.from(ORDER);
+        staleEntity.setStatus("EXPIRED");
+        when(expiringOrders.query(any(QueryConditional.class)))
+                .thenReturn(pages(reservedEntity, staleEntity), pages(), pages(), pages());
+
+        StepVerifier.create(adapter.findExpiredReservations(CREATED_AT.plus(Duration.ofMinutes(15))))
+                .expectNext(reserved)
+                .verifyComplete();
+
+        verify(expiringOrders, times(ExpiringOrdersIndex.SHARDS)).query(any(QueryConditional.class));
     }
 
     @Test
@@ -204,6 +245,10 @@ class OrderDynamoDBAdapterTest {
                 ArgumentCaptor.forClass(PutItemEnhancedRequest.class);
         verify(table).putItem(captor.capture());
         return captor.getValue();
+    }
+
+    private static SdkPublisher<Page<OrderEntity>> pages(OrderEntity... items) {
+        return SdkPublisher.adapt(Flux.just(Page.create(List.of(items))));
     }
 
     private static ConditionalCheckFailedException conditionalCheckFailed() {
