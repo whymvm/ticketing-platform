@@ -1,8 +1,10 @@
 package co.com.ticketing.model.order;
 
 /**
- * Lifecycle of an order.
+ * Name of each order state. The valid transitions are defined by the state types, not here.
  */
 public enum OrderStatus {
-    QUEUED
+    QUEUED,
+    RESERVED,
+    REJECTED
 }

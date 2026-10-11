@@ -1,6 +1,7 @@
 package co.com.ticketing.dynamodb;
 
-import co.com.ticketing.model.order.Order;
+import co.com.ticketing.model.order.OrderDetails;
+import co.com.ticketing.model.order.QueuedOrder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -27,16 +28,17 @@ public class OrderEntity {
     private Instant createdAt;
 
     /**
-     * Builds the item from an order.
+     * Builds the item from a new order.
      */
-    public static OrderEntity from(Order order) {
+    public static OrderEntity from(QueuedOrder order) {
+        OrderDetails details = order.details();
         OrderEntity entity = new OrderEntity();
-        entity.setId(order.id());
-        entity.setEventId(order.eventId());
-        entity.setCustomerId(order.customerId());
-        entity.setQuantity(order.quantity());
+        entity.setId(details.id());
+        entity.setEventId(details.eventId());
+        entity.setCustomerId(details.customerId());
+        entity.setQuantity(details.quantity());
         entity.setStatus(order.status().name());
-        entity.setCreatedAt(order.createdAt());
+        entity.setCreatedAt(details.createdAt());
         return entity;
     }
 }

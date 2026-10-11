@@ -11,7 +11,7 @@ public record OrderPlaced(String orderId, Instant occurredAt) {
     /**
      * Creates the event for an order that was just placed.
      */
-    public static OrderPlaced from(Order order) {
-        return new OrderPlaced(order.id(), order.createdAt());
+    public static OrderPlaced from(QueuedOrder order) {
+        return new OrderPlaced(order.details().id(), order.details().createdAt());
     }
 }

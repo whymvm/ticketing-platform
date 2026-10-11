@@ -1,7 +1,7 @@
 package co.com.ticketing.api;
 
 import co.com.ticketing.model.order.NewOrder;
-import co.com.ticketing.model.order.Order;
+import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.usecase.placeorder.PlaceOrderUseCase;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
@@ -30,7 +30,7 @@ public class OrderHandler {
                 .flatMap(order -> ServerResponse.accepted()
                         .location(locationOf(order))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .bodyValue(order));
+                        .bodyValue(OrderResponse.from(order)));
     }
 
     private static String customerId(ServerRequest request) {
@@ -38,7 +38,7 @@ public class OrderHandler {
                 .orElse(ApiHeaders.DEFAULT_CUSTOMER_ID);
     }
 
-    private static URI locationOf(Order order) {
-        return UriComponentsBuilder.fromPath(ApiPaths.ORDER_BY_ID).build(order.id());
+    private static URI locationOf(QueuedOrder order) {
+        return UriComponentsBuilder.fromPath(ApiPaths.ORDER_BY_ID).build(order.details().id());
     }
 }
