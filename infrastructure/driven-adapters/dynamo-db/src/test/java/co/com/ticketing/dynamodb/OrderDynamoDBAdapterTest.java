@@ -22,6 +22,7 @@ import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
 import software.amazon.awssdk.enhanced.dynamodb.Expression;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
+import software.amazon.awssdk.enhanced.dynamodb.model.GetItemEnhancedRequest;
 import software.amazon.awssdk.enhanced.dynamodb.model.Page;
 import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
 import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
@@ -36,6 +37,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -137,11 +139,23 @@ class OrderDynamoDBAdapterTest {
 
     @Test
     void findByIdRebuildsAQueuedOrder() {
-        when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(OrderEntity.from(ORDER)));
+        when(table.getItem(anyGetItemRequest())).thenReturn(CompletableFuture.completedFuture(OrderEntity.from(ORDER)));
 
         StepVerifier.create(adapter.findById("o-1"))
                 .expectNext(ORDER)
                 .verifyComplete();
+    }
+
+    @Test
+    void findByIdReadsTheOrderWithAStronglyConsistentRead() {
+        when(table.getItem(anyGetItemRequest()))
+                .thenReturn(CompletableFuture.completedFuture(OrderEntity.from(ORDER)));
+
+        StepVerifier.create(adapter.findById("o-1")).expectNext(ORDER).verifyComplete();
+
+        GetItemEnhancedRequest request = capturedGetItemRequest();
+        assertThat(request.consistentRead()).isTrue();
+        assertThat(request.key().partitionKeyValue()).isEqualTo(AttributeValue.fromS("o-1"));
     }
 
     @Test
@@ -150,7 +164,7 @@ class OrderDynamoDBAdapterTest {
         OrderEntity entity = OrderEntity.from(ORDER);
         entity.setStatus("RESERVED");
         entity.setExpiresAt(expiresAt);
-        when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(entity));
+        when(table.getItem(anyGetItemRequest())).thenReturn(CompletableFuture.completedFuture(entity));
 
         StepVerifier.create(adapter.findById("o-1"))
                 .expectNext(ORDER.reserve(CREATED_AT, Duration.ofMinutes(10)))
@@ -162,7 +176,7 @@ class OrderDynamoDBAdapterTest {
         OrderEntity entity = OrderEntity.from(ORDER);
         entity.setStatus("REJECTED");
         entity.setRejectionReason("SOLD_OUT");
-        when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(entity));
+        when(table.getItem(anyGetItemRequest())).thenReturn(CompletableFuture.completedFuture(entity));
 
         StepVerifier.create(adapter.findById("o-1"))
                 .expectNext(ORDER.reject(RejectionReason.SOLD_OUT))
@@ -173,7 +187,7 @@ class OrderDynamoDBAdapterTest {
     void findByIdRebuildsAnExpiredOrder() {
         OrderEntity entity = OrderEntity.from(ORDER);
         entity.setStatus("EXPIRED");
-        when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(entity));
+        when(table.getItem(anyGetItemRequest())).thenReturn(CompletableFuture.completedFuture(entity));
 
         StepVerifier.create(adapter.findById("o-1"))
                 .expectNext(ORDER.reserve(CREATED_AT, Duration.ofMinutes(10)).expire())
@@ -184,7 +198,7 @@ class OrderDynamoDBAdapterTest {
     void findByIdRebuildsASoldOrder() {
         OrderEntity entity = OrderEntity.from(ORDER);
         entity.setStatus("SOLD");
-        when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(entity));
+        when(table.getItem(anyGetItemRequest())).thenReturn(CompletableFuture.completedFuture(entity));
 
         StepVerifier.create(adapter.findById("o-1"))
                 .expectNext(ORDER.reserve(CREATED_AT, Duration.ofMinutes(10)).confirm(CREATED_AT))
@@ -212,7 +226,7 @@ class OrderDynamoDBAdapterTest {
 
     @Test
     void findByIdIsEmptyWhenTheOrderDoesNotExist() {
-        when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(null));
+        when(table.getItem(anyGetItemRequest())).thenReturn(CompletableFuture.completedFuture(null));
 
         StepVerifier.create(adapter.findById("missing")).verifyComplete();
     }
@@ -256,6 +270,20 @@ class OrderDynamoDBAdapterTest {
                 ArgumentCaptor.forClass(PutItemEnhancedRequest.class);
         verify(table).putItem(captor.capture());
         return captor.getValue();
+    }
+
+    private static Consumer<GetItemEnhancedRequest.Builder> anyGetItemRequest() {
+        return any();
+    }
+
+    // Applies the request consumer that the adapter passed to getItem, to inspect the resulting request
+    @SuppressWarnings("unchecked")
+    private GetItemEnhancedRequest capturedGetItemRequest() {
+        ArgumentCaptor<Consumer<GetItemEnhancedRequest.Builder>> captor = ArgumentCaptor.forClass(Consumer.class);
+        verify(table).getItem(captor.capture());
+        GetItemEnhancedRequest.Builder builder = GetItemEnhancedRequest.builder();
+        captor.getValue().accept(builder);
+        return builder.build();
     }
 
     private static SdkPublisher<Page<OrderEntity>> pages(OrderEntity... items) {
