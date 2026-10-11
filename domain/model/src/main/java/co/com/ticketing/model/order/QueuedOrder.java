@@ -20,17 +20,22 @@ public record QueuedOrder(OrderDetails details) implements Order {
         return OrderStatus.QUEUED;
     }
 
+    @Override
+    public Instant updatedAt() {
+        return details.createdAt();
+    }
+
     /**
      * Reserves the tickets until now plus the time to live.
      */
     public ReservedOrder reserve(Instant now, Duration ttl) {
-        return new ReservedOrder(details, now.plus(ttl));
+        return new ReservedOrder(details, now.plus(ttl), now);
     }
 
     /**
      * Rejects the order, for example because there are no tickets left.
      */
-    public RejectedOrder reject(RejectionReason rejectionReason) {
-        return new RejectedOrder(details, rejectionReason);
+    public RejectedOrder reject(RejectionReason rejectionReason, Instant now) {
+        return new RejectedOrder(details, rejectionReason, now);
     }
 }

@@ -62,7 +62,7 @@ public class ReserveTicketsUseCase {
                 .switchIfEmpty(Mono.error(() -> new EventNotFoundException(eventId)))
                 .flatMap(event -> event.isOpenAt(now)
                         ? holdTickets(order, now)
-                        : reject(order, RejectionReason.EVENT_CLOSED));
+                        : reject(order, RejectionReason.EVENT_CLOSED, now));
     }
 
     private Mono<Void> holdTickets(QueuedOrder order, Instant now) {
@@ -71,10 +71,10 @@ public class ReserveTicketsUseCase {
                         .filter(ConcurrencyConflictException.class::isInstance)
                         .onRetryExhaustedThrow((_, signal) -> signal.failure()))
                 .then()
-                .onErrorResume(TicketsSoldOutException.class, _ -> reject(order, RejectionReason.SOLD_OUT));
+                .onErrorResume(TicketsSoldOutException.class, _ -> reject(order, RejectionReason.SOLD_OUT, now));
     }
 
-    private Mono<Void> reject(QueuedOrder order, RejectionReason reason) {
-        return orderStatusUpdater.markRejected(order.reject(reason)).then();
+    private Mono<Void> reject(QueuedOrder order, RejectionReason reason, Instant now) {
+        return orderStatusUpdater.markRejected(order.reject(reason, now)).then();
     }
 }

@@ -8,6 +8,11 @@ output "orders_table_name" {
   value       = module.data.orders_table_name
 }
 
+output "order_history_table_name" {
+  description = "Order history table name (TABLE_PREFIX + order-history)."
+  value       = module.data.order_history_table_name
+}
+
 output "queue_urls" {
   description = "Main queue URLs."
   value       = module.messaging.queue_urls

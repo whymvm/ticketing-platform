@@ -9,12 +9,13 @@ import java.util.Objects;
 /**
  * An order whose tickets are held until it expires.
  */
-public record ReservedOrder(OrderDetails details, Instant expiresAt) implements Order {
+public record ReservedOrder(OrderDetails details, Instant expiresAt, Instant updatedAt) implements Order {
 
     public static final Duration RESERVATION_TIME = Duration.ofMinutes(10);
 
     public ReservedOrder {
         Objects.requireNonNull(expiresAt, "expiresAt is required");
+        Objects.requireNonNull(updatedAt, "updatedAt is required");
     }
 
     @Override
@@ -37,13 +38,13 @@ public record ReservedOrder(OrderDetails details, Instant expiresAt) implements 
         if (isExpiredAt(now)) {
             throw new ReservationExpiredException(details.id());
         }
-        return new SoldOrder(details);
+        return new SoldOrder(details, now);
     }
 
     /**
      * Expires the reservation, so its tickets go back to the inventory.
      */
-    public ExpiredOrder expire() {
-        return new ExpiredOrder(details);
+    public ExpiredOrder expire(Instant now) {
+        return new ExpiredOrder(details, now);
     }
 }

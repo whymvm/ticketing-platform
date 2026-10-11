@@ -19,24 +19,25 @@ import software.amazon.awssdk.core.async.SdkPublisher;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncIndex;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
-import software.amazon.awssdk.enhanced.dynamodb.Expression;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.enhanced.dynamodb.model.GetItemEnhancedRequest;
 import software.amazon.awssdk.enhanced.dynamodb.model.Page;
-import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
 import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
-import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
-import software.amazon.awssdk.services.dynamodb.model.UpdateItemResponse;
+import software.amazon.awssdk.services.dynamodb.model.CancellationReason;
+import software.amazon.awssdk.services.dynamodb.model.Put;
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsResponse;
+import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
+import software.amazon.awssdk.services.dynamodb.model.Update;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -44,13 +45,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class OrderDynamoDBAdapterTest {
 
     private static final String TABLE = "local-ticketing-orders";
+    private static final String HISTORY_TABLE = "local-ticketing-order-history";
     private static final Instant CREATED_AT = Instant.parse("2026-10-10T12:00:00Z");
     private static final QueuedOrder ORDER = new QueuedOrder(new OrderDetails("o-1", "e-1", "c-1", 2, CREATED_AT));
 
@@ -74,43 +76,46 @@ class OrderDynamoDBAdapterTest {
         when(client.table(eq(TABLE), any(TableSchema.class))).thenReturn(table);
         when(table.index("expiring-orders")).thenReturn(expiringOrders);
         adapter = new OrderDynamoDBAdapter(client, lowLevelClient,
-                new DynamoDBProperties("us-east-1", null, new DynamoDBProperties.Tables("events", TABLE)));
+                new DynamoDBProperties("us-east-1", null, new DynamoDBProperties.Tables("events", TABLE, HISTORY_TABLE)));
     }
 
     @Test
-    void savePersistsEveryFieldAndReturnsTheOrder() {
-        when(table.putItem(any(PutItemEnhancedRequest.class))).thenReturn(CompletableFuture.completedFuture(null));
+    void saveWritesTheOrderAndItsFirstHistoryEntryInOneTransaction() {
+        allowTransactions();
 
         StepVerifier.create(adapter.save(ORDER))
                 .expectNext(ORDER)
                 .verifyComplete();
 
-        OrderEntity saved = capturedRequest().item();
-        assertThat(saved.getId()).isEqualTo("o-1");
-        assertThat(saved.getEventId()).isEqualTo("e-1");
-        assertThat(saved.getCustomerId()).isEqualTo("c-1");
-        assertThat(saved.getQuantity()).isEqualTo(2);
-        assertThat(saved.getStatus()).isEqualTo("QUEUED");
-        assertThat(saved.getExpiresAt()).isNull();
-        assertThat(saved.getRejectionReason()).isNull();
-        assertThat(saved.getCreatedAt()).isEqualTo(CREATED_AT);
-    }
+        TransactWriteItemsRequest request = capturedTransaction();
+        assertThat(request.transactItems()).hasSize(2);
 
-    @Test
-    void saveOnlyWritesWhenTheIdDoesNotExist() {
-        when(table.putItem(any(PutItemEnhancedRequest.class))).thenReturn(CompletableFuture.completedFuture(null));
+        Put order = request.transactItems().get(0).put();
+        assertThat(order.tableName()).isEqualTo(TABLE);
+        assertThat(order.conditionExpression()).isEqualTo("attribute_not_exists(#id)");
+        assertThat(order.expressionAttributeNames()).containsEntry("#id", "id");
+        assertThat(order.item())
+                .containsEntry("id", AttributeValue.fromS("o-1"))
+                .containsEntry("eventId", AttributeValue.fromS("e-1"))
+                .containsEntry("customerId", AttributeValue.fromS("c-1"))
+                .containsEntry("quantity", AttributeValue.fromN("2"))
+                .containsEntry("status", AttributeValue.fromS("QUEUED"))
+                .containsEntry("createdAt", AttributeValue.fromS("2026-10-10T12:00:00Z"))
+                .containsEntry("updatedAt", AttributeValue.fromS("2026-10-10T12:00:00Z"))
+                .doesNotContainKeys("expiresAt", "rejectionReason", "expiryShard");
 
-        StepVerifier.create(adapter.save(ORDER)).expectNext(ORDER).verifyComplete();
-
-        Expression condition = capturedRequest().conditionExpression();
-        assertThat(condition.expression()).isEqualTo("attribute_not_exists(#id)");
-        assertThat(condition.expressionNames()).containsEntry("#id", "id");
+        Put history = request.transactItems().get(1).put();
+        assertThat(history.tableName()).isEqualTo(HISTORY_TABLE);
+        assertThat(history.item())
+                .containsEntry("orderId", AttributeValue.fromS("o-1"))
+                .containsEntry("toStatus", AttributeValue.fromS("QUEUED"))
+                .containsEntry("reason", AttributeValue.fromS("ORDER_PLACED"))
+                .doesNotContainKey("fromStatus");
     }
 
     @Test
     void saveFailsWithOrderAlreadyExistsWhenTheIdIsTaken() {
-        when(table.putItem(any(PutItemEnhancedRequest.class)))
-                .thenReturn(CompletableFuture.failedFuture(new CompletionException(conditionalCheckFailed())));
+        cancelWith("ConditionalCheckFailed", "None");
 
         StepVerifier.create(adapter.save(ORDER))
                 .expectErrorSatisfies(error -> assertThat(error)
@@ -121,7 +126,7 @@ class OrderDynamoDBAdapterTest {
 
     @Test
     void savePropagatesDynamoErrors() {
-        when(table.putItem(any(PutItemEnhancedRequest.class)))
+        when(lowLevelClient.transactWriteItems(any(TransactWriteItemsRequest.class)))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("dynamo down")));
 
         StepVerifier.create(adapter.save(ORDER))
@@ -130,10 +135,19 @@ class OrderDynamoDBAdapterTest {
     }
 
     @Test
+    void saveKeepsOtherCancellations() {
+        cancelWith("None", "ConditionalCheckFailed");
+
+        StepVerifier.create(adapter.save(ORDER))
+                .expectError(TransactionCanceledException.class)
+                .verify();
+    }
+
+    @Test
     void saveDoesNotWriteUntilSubscribed() {
         Mono<QueuedOrder> pending = adapter.save(ORDER);
 
-        verify(table, never()).putItem(any(PutItemEnhancedRequest.class));
+        verifyNoInteractions(lowLevelClient);
         assertThat(pending).isNotNull();
     }
 
@@ -179,7 +193,7 @@ class OrderDynamoDBAdapterTest {
         when(table.getItem(anyGetItemRequest())).thenReturn(CompletableFuture.completedFuture(entity));
 
         StepVerifier.create(adapter.findById("o-1"))
-                .expectNext(ORDER.reject(RejectionReason.SOLD_OUT))
+                .expectNext(ORDER.reject(RejectionReason.SOLD_OUT, CREATED_AT))
                 .verifyComplete();
     }
 
@@ -190,7 +204,7 @@ class OrderDynamoDBAdapterTest {
         when(table.getItem(anyGetItemRequest())).thenReturn(CompletableFuture.completedFuture(entity));
 
         StepVerifier.create(adapter.findById("o-1"))
-                .expectNext(ORDER.reserve(CREATED_AT, Duration.ofMinutes(10)).expire())
+                .expectNext(ORDER.reserve(CREATED_AT, Duration.ofMinutes(10)).expire(CREATED_AT))
                 .verifyComplete();
     }
 
@@ -232,43 +246,63 @@ class OrderDynamoDBAdapterTest {
     }
 
     @Test
-    void markRejectedOnlyUpdatesTheStatusAndReasonOfAQueuedOrder() {
-        when(lowLevelClient.updateItem(any(UpdateItemRequest.class)))
-                .thenReturn(CompletableFuture.completedFuture(UpdateItemResponse.builder().build()));
-        var rejected = ORDER.reject(RejectionReason.SOLD_OUT);
+    void markRejectedUpdatesTheOrderAndRecordsTheRejectionInOneTransaction() {
+        allowTransactions();
+        var rejected = ORDER.reject(RejectionReason.SOLD_OUT, CREATED_AT.plusSeconds(1));
 
         StepVerifier.create(adapter.markRejected(rejected))
                 .expectNext(rejected)
                 .verifyComplete();
 
-        ArgumentCaptor<UpdateItemRequest> captor = ArgumentCaptor.forClass(UpdateItemRequest.class);
-        verify(lowLevelClient).updateItem(captor.capture());
-        UpdateItemRequest request = captor.getValue();
-        assertThat(request.tableName()).isEqualTo(TABLE);
-        assertThat(request.key()).containsEntry("id", AttributeValue.fromS("o-1"));
-        assertThat(request.updateExpression()).isEqualTo("SET #status = :rejected, #rejectionReason = :rejectionReason");
-        assertThat(request.conditionExpression()).isEqualTo("#status = :queued");
-        assertThat(request.expressionAttributeValues())
+        TransactWriteItemsRequest request = capturedTransaction();
+        Update order = request.transactItems().get(0).update();
+        assertThat(order.tableName()).isEqualTo(TABLE);
+        assertThat(order.key()).containsEntry("id", AttributeValue.fromS("o-1"));
+        assertThat(order.updateExpression())
+                .isEqualTo("SET #status = :rejected, #rejectionReason = :rejectionReason, #updatedAt = :updatedAt");
+        assertThat(order.conditionExpression()).isEqualTo("#status = :queued");
+        assertThat(order.expressionAttributeValues())
                 .containsEntry(":rejected", AttributeValue.fromS("REJECTED"))
                 .containsEntry(":queued", AttributeValue.fromS("QUEUED"))
-                .containsEntry(":rejectionReason", AttributeValue.fromS("SOLD_OUT"));
+                .containsEntry(":rejectionReason", AttributeValue.fromS("SOLD_OUT"))
+                .containsEntry(":updatedAt", AttributeValue.fromS("2026-10-10T12:00:01Z"));
+
+        Put history = request.transactItems().get(1).put();
+        assertThat(history.tableName()).isEqualTo(HISTORY_TABLE);
+        assertThat(history.item())
+                .containsEntry("fromStatus", AttributeValue.fromS("QUEUED"))
+                .containsEntry("toStatus", AttributeValue.fromS("REJECTED"))
+                .containsEntry("reason", AttributeValue.fromS("SOLD_OUT"));
     }
 
     @Test
     void markRejectedFailsWithOrderAlreadyProcessedWhenTheOrderIsNoLongerQueued() {
-        when(lowLevelClient.updateItem(any(UpdateItemRequest.class)))
-                .thenReturn(CompletableFuture.failedFuture(conditionalCheckFailed()));
+        cancelWith("ConditionalCheckFailed", "None");
 
-        StepVerifier.create(adapter.markRejected(ORDER.reject(RejectionReason.SOLD_OUT)))
+        StepVerifier.create(adapter.markRejected(ORDER.reject(RejectionReason.SOLD_OUT, CREATED_AT)))
                 .expectError(OrderAlreadyProcessedException.class)
                 .verify();
     }
 
-    @SuppressWarnings("unchecked")
-    private PutItemEnhancedRequest<OrderEntity> capturedRequest() {
-        ArgumentCaptor<PutItemEnhancedRequest<OrderEntity>> captor =
-                ArgumentCaptor.forClass(PutItemEnhancedRequest.class);
-        verify(table).putItem(captor.capture());
+    private void allowTransactions() {
+        when(lowLevelClient.transactWriteItems(any(TransactWriteItemsRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(TransactWriteItemsResponse.builder().build()));
+    }
+
+    private void cancelWith(String... codes) {
+        TransactionCanceledException error = TransactionCanceledException.builder()
+                .message("Transaction cancelled")
+                .cancellationReasons(Arrays.stream(codes)
+                        .map(code -> CancellationReason.builder().code(code).build())
+                        .toList())
+                .build();
+        when(lowLevelClient.transactWriteItems(any(TransactWriteItemsRequest.class)))
+                .thenReturn(CompletableFuture.failedFuture(error));
+    }
+
+    private TransactWriteItemsRequest capturedTransaction() {
+        ArgumentCaptor<TransactWriteItemsRequest> captor = ArgumentCaptor.forClass(TransactWriteItemsRequest.class);
+        verify(lowLevelClient).transactWriteItems(captor.capture());
         return captor.getValue();
     }
 
@@ -290,7 +324,4 @@ class OrderDynamoDBAdapterTest {
         return SdkPublisher.adapt(Flux.just(Page.create(List.of(items))));
     }
 
-    private static ConditionalCheckFailedException conditionalCheckFailed() {
-        return ConditionalCheckFailedException.builder().message("The conditional request failed").build();
-    }
 }

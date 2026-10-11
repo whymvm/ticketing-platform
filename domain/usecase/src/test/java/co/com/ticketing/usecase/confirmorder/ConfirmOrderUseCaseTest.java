@@ -81,7 +81,7 @@ class ConfirmOrderUseCaseTest {
     }
 
     static Stream<Order> ordersThatAreNotReserved() {
-        return Stream.of(QUEUED, QUEUED.reject(RejectionReason.SOLD_OUT), RESERVED.expire());
+        return Stream.of(QUEUED, QUEUED.reject(RejectionReason.SOLD_OUT, NOW), RESERVED.expire(NOW));
     }
 
     @ParameterizedTest
@@ -167,7 +167,7 @@ class ConfirmOrderUseCaseTest {
 
     @Test
     void rejectsTheConfirmationWhenTheSchedulerExpiredTheOrderFirst() {
-        when(orderRetriever.findById("o-1")).thenReturn(Mono.just(RESERVED), Mono.just(RESERVED.expire()));
+        when(orderRetriever.findById("o-1")).thenReturn(Mono.just(RESERVED), Mono.just(RESERVED.expire(NOW)));
         when(inventoryUpdater.sellTickets(SOLD)).thenReturn(Mono.error(new OrderAlreadyProcessedException("o-1")));
 
         StepVerifier.create(useCase.run("o-1", "c-1"))

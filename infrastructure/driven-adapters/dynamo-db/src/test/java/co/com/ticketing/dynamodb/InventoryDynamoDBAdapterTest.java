@@ -20,6 +20,7 @@ import reactor.test.StepVerifier;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.CancellationReason;
+import software.amazon.awssdk.services.dynamodb.model.Put;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsResponse;
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
@@ -50,7 +51,7 @@ class InventoryDynamoDBAdapterTest {
     @BeforeEach
     void setUp() {
         adapter = new InventoryDynamoDBAdapter(client, new DynamoDBProperties("us-east-1", null,
-                new DynamoDBProperties.Tables("local-ticketing-events", "local-ticketing-orders")));
+                new DynamoDBProperties.Tables("local-ticketing-events", "local-ticketing-orders", "local-ticketing-order-history")));
     }
 
     @Test
@@ -64,7 +65,7 @@ class InventoryDynamoDBAdapterTest {
 
         ArgumentCaptor<TransactWriteItemsRequest> captor = ArgumentCaptor.forClass(TransactWriteItemsRequest.class);
         verify(client).transactWriteItems(captor.capture());
-        assertThat(captor.getValue().transactItems()).hasSize(2);
+        assertThat(captor.getValue().transactItems()).hasSize(3);
 
         Update event = captor.getValue().transactItems().get(0).update();
         assertThat(event.tableName()).isEqualTo("local-ticketing-events");
@@ -77,19 +78,22 @@ class InventoryDynamoDBAdapterTest {
         Update order = captor.getValue().transactItems().get(1).update();
         assertThat(order.tableName()).isEqualTo("local-ticketing-orders");
         assertThat(order.key()).containsEntry("id", AttributeValue.fromS("o-1"));
-        assertThat(order.updateExpression())
-                .isEqualTo("SET #status = :reserved, #expiresAt = :expiresAt, #expiryShard = :expiryShard");
+        assertThat(order.updateExpression()).isEqualTo(
+                "SET #status = :reserved, #expiresAt = :expiresAt, #expiryShard = :expiryShard, #updatedAt = :updatedAt");
         assertThat(order.conditionExpression()).isEqualTo("#status = :queued");
         assertThat(order.expressionAttributeValues())
                 .containsEntry(":reserved", AttributeValue.fromS("RESERVED"))
                 .containsEntry(":queued", AttributeValue.fromS("QUEUED"))
                 .containsEntry(":expiresAt", AttributeValue.fromS("2026-10-10T12:10:00Z"))
-                .containsEntry(":expiryShard", AttributeValue.fromS(ExpiringOrdersIndex.shardOf("o-1")));
+                .containsEntry(":expiryShard", AttributeValue.fromS(ExpiringOrdersIndex.shardOf("o-1")))
+                .containsEntry(":updatedAt", AttributeValue.fromS("2026-10-10T12:00:00Z"));
+
+        assertHistoryEntry(captor.getValue(), "QUEUED", "RESERVED", "TICKETS_RESERVED");
     }
 
     @Test
     void releaseTicketsReturnsTheTicketsAndMarksTheOrderInOneTransaction() {
-        ExpiredOrder expired = ORDER.expire();
+        ExpiredOrder expired = ORDER.expire(NOW);
         when(client.transactWriteItems(any(TransactWriteItemsRequest.class)))
                 .thenReturn(CompletableFuture.completedFuture(TransactWriteItemsResponse.builder().build()));
 
@@ -108,11 +112,14 @@ class InventoryDynamoDBAdapterTest {
 
         Update order = captor.getValue().transactItems().get(1).update();
         assertThat(order.key()).containsEntry("id", AttributeValue.fromS("o-1"));
-        assertThat(order.updateExpression()).isEqualTo("SET #status = :newStatus REMOVE #expiryShard");
+        assertThat(order.updateExpression())
+                .isEqualTo("SET #status = :newStatus, #updatedAt = :updatedAt REMOVE #expiryShard");
         assertThat(order.conditionExpression()).isEqualTo("#status = :reserved");
         assertThat(order.expressionAttributeValues())
                 .containsEntry(":newStatus", AttributeValue.fromS("EXPIRED"))
                 .containsEntry(":reserved", AttributeValue.fromS("RESERVED"));
+
+        assertHistoryEntry(captor.getValue(), "RESERVED", "EXPIRED", "RESERVATION_EXPIRED");
     }
 
     @Test
@@ -135,9 +142,12 @@ class InventoryDynamoDBAdapterTest {
         assertThat(event.expressionAttributeNames()).containsOnlyKeys("#reserved", "#sold");
 
         Update order = captor.getValue().transactItems().get(1).update();
-        assertThat(order.updateExpression()).isEqualTo("SET #status = :newStatus REMOVE #expiryShard");
+        assertThat(order.updateExpression())
+                .isEqualTo("SET #status = :newStatus, #updatedAt = :updatedAt REMOVE #expiryShard");
         assertThat(order.conditionExpression()).isEqualTo("#status = :reserved");
         assertThat(order.expressionAttributeValues()).containsEntry(":newStatus", AttributeValue.fromS("SOLD"));
+
+        assertHistoryEntry(captor.getValue(), "RESERVED", "SOLD", "ORDER_CONFIRMED");
     }
 
     @Test
@@ -162,7 +172,7 @@ class InventoryDynamoDBAdapterTest {
     void releaseTicketsFailsWithOrderAlreadyProcessedWhenTheOrderIsNoLongerReserved() {
         cancelWith("None", "ConditionalCheckFailed");
 
-        StepVerifier.create(adapter.releaseTickets(ORDER.expire()))
+        StepVerifier.create(adapter.releaseTickets(ORDER.expire(NOW)))
                 .expectError(OrderAlreadyProcessedException.class)
                 .verify();
     }
@@ -171,7 +181,7 @@ class InventoryDynamoDBAdapterTest {
     void releaseTicketsFailsWithInconsistentInventoryWhenTheEventHasTooFewReservedTickets() {
         cancelWith("ConditionalCheckFailed", "None");
 
-        StepVerifier.create(adapter.releaseTickets(ORDER.expire()))
+        StepVerifier.create(adapter.releaseTickets(ORDER.expire(NOW)))
                 .expectErrorSatisfies(error -> assertThat(error)
                         .isInstanceOf(InconsistentInventoryException.class)
                         .hasMessage("inconsistent inventory: event e-1 has fewer than 2 reserved tickets"))
@@ -214,6 +224,19 @@ class InventoryDynamoDBAdapterTest {
         StepVerifier.create(adapter.reserveTickets(ORDER))
                 .expectError(TransactionCanceledException.class)
                 .verify();
+    }
+
+    // The third item of every transaction appends the transition to the order history, and never overwrites one
+    private static void assertHistoryEntry(TransactWriteItemsRequest request, String from, String to, String reason) {
+        Put history = request.transactItems().get(2).put();
+        assertThat(history.tableName()).isEqualTo("local-ticketing-order-history");
+        assertThat(history.conditionExpression()).isEqualTo("attribute_not_exists(#sk)");
+        assertThat(history.item())
+                .containsEntry("orderId", AttributeValue.fromS("o-1"))
+                .containsEntry("fromStatus", AttributeValue.fromS(from))
+                .containsEntry("toStatus", AttributeValue.fromS(to))
+                .containsEntry("reason", AttributeValue.fromS(reason));
+        assertThat(history.item().get("sk").s()).endsWith("#" + to);
     }
 
     private void cancelWith(String... codes) {

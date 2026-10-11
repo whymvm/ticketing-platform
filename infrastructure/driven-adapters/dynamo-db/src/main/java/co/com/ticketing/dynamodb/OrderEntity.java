@@ -18,6 +18,7 @@ import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbSecon
 import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbSecondarySortKey;
 
 import java.time.Instant;
+import java.util.Optional;
 
 /**
  * Order item in DynamoDB.
@@ -40,6 +41,7 @@ public class OrderEntity {
     private String expiryShard;
     private String rejectionReason;
     private Instant createdAt;
+    private Instant updatedAt;
 
     /**
      * Builds the item from a new order.
@@ -53,6 +55,7 @@ public class OrderEntity {
         entity.setQuantity(details.quantity());
         entity.setStatus(order.status().name());
         entity.setCreatedAt(details.createdAt());
+        entity.setUpdatedAt(order.updatedAt());
         return entity;
     }
 
@@ -61,12 +64,14 @@ public class OrderEntity {
      */
     public Order toDomain() {
         OrderDetails details = new OrderDetails(id, eventId, customerId, quantity, createdAt);
+        // Orders saved before updatedAt existed fall back to their creation time
+        Instant changedAt = Optional.ofNullable(updatedAt).orElse(createdAt);
         return switch (OrderStatus.valueOf(status)) {
             case QUEUED -> new QueuedOrder(details);
-            case RESERVED -> new ReservedOrder(details, expiresAt);
-            case REJECTED -> new RejectedOrder(details, RejectionReason.valueOf(rejectionReason));
-            case EXPIRED -> new ExpiredOrder(details);
-            case SOLD -> new SoldOrder(details);
+            case RESERVED -> new ReservedOrder(details, expiresAt, changedAt);
+            case REJECTED -> new RejectedOrder(details, RejectionReason.valueOf(rejectionReason), changedAt);
+            case EXPIRED -> new ExpiredOrder(details, changedAt);
+            case SOLD -> new SoldOrder(details, changedAt);
         };
     }
 }

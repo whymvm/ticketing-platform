@@ -50,7 +50,7 @@ class ReleaseExpiredReservationsUseCaseTest {
 
     @Test
     void releasesTheTicketsOfEachExpiredReservation() {
-        ExpiredOrder expired = EXPIRED_RESERVATION.expire();
+        ExpiredOrder expired = EXPIRED_RESERVATION.expire(NOW);
         when(orderRetriever.findExpiredReservations(NOW)).thenReturn(Flux.just(EXPIRED_RESERVATION));
         when(inventoryUpdater.releaseTickets(expired)).thenReturn(Mono.just(expired));
 
@@ -84,7 +84,7 @@ class ReleaseExpiredReservationsUseCaseTest {
         });
 
         StepVerifier.create(useCase.run())
-                .expectNext(other.expire())
+                .expectNext(other.expire(NOW))
                 .verifyComplete();
     }
 
@@ -98,7 +98,7 @@ class ReleaseExpiredReservationsUseCaseTest {
                 .expectErrorMessage("dynamo down")
                 .verify();
 
-        verify(inventoryUpdater).releaseTickets(EXPIRED_RESERVATION.expire());
+        verify(inventoryUpdater).releaseTickets(EXPIRED_RESERVATION.expire(NOW));
     }
 
     private static ReservedOrder reserved(String id, Instant reservedAt) {

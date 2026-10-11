@@ -1712,6 +1712,91 @@
           ]
         },
         {
+          "name": "Retrieve order history",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "const history = pm.response.json();",
+                  "pm.test('records the 3 transitions of a sold order, oldest first', () => {",
+                  "    pm.expect(history.orderId).to.eql(pm.collectionVariables.get('orderId'));",
+                  "    const steps = history.transitions.map(t => `${t.fromStatus || '-'}>${t.toStatus}:${t.reason}`);",
+                  "    pm.expect(steps).to.eql(['->QUEUED:ORDER_PLACED', 'QUEUED>RESERVED:TICKETS_RESERVED', 'RESERVED>SOLD:ORDER_CONFIRMED']);",
+                  "});",
+                  "pm.test('the transitions are in time order', () => {",
+                  "    const times = history.transitions.map(t => new Date(t.occurredAt).getTime());",
+                  "    pm.expect(times).to.eql([...times].sort((a, b) => a - b));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "history"
+              ]
+            },
+            "description": "Returns every transition of the order, oldest first: where it came from, where it went, why and when. Each transition is written in the same transaction as the change."
+          },
+          "response": [
+            {
+              "name": "Retrieve order history",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/history",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "history"
+                  ]
+                },
+                "description": "Returns every transition of the order, oldest first: where it came from, where it went, why and when. Each transition is written in the same transaction as the change."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"orderId\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"transitions\": [\n    {\n      \"toStatus\": \"QUEUED\",\n      \"reason\": \"ORDER_PLACED\",\n      \"occurredAt\": \"2026-10-10T12:00:00.000Z\"\n    },\n    {\n      \"fromStatus\": \"QUEUED\",\n      \"toStatus\": \"RESERVED\",\n      \"reason\": \"TICKETS_RESERVED\",\n      \"occurredAt\": \"2026-10-10T12:00:00.150Z\"\n    },\n    {\n      \"fromStatus\": \"RESERVED\",\n      \"toStatus\": \"SOLD\",\n      \"reason\": \"ORDER_CONFIRMED\",\n      \"occurredAt\": \"2026-10-10T12:01:00.000Z\"\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
           "name": "Retrieve event - after the sale",
           "event": [
             {
@@ -1918,6 +2003,82 @@
                 }
               ],
               "body": "{\n  \"detail\": \"no order found with id 6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"instance\": \"/api/v1/orders/6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f/confirm\",\n  \"status\": 404,\n  \"title\": \"Not Found\",\n  \"code\": \"ORDER_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order history - another customer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 404 so the order is not revealed', () => pm.response.to.have.status(404));",
+                  "pm.test('returns code ORDER_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "someone-else"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "history"
+              ]
+            },
+            "description": "Another customer asks for the history. The API answers as if the order did not exist."
+          },
+          "response": [
+            {
+              "name": "Retrieve order history - another customer",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "someone-else"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/history",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "history"
+                  ]
+                },
+                "description": "Another customer asks for the history. The API answers as if the order did not exist."
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"no order found with id 6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"instance\": \"/api/v1/orders/6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f/history\",\n  \"status\": 404,\n  \"title\": \"Not Found\",\n  \"code\": \"ORDER_NOT_FOUND\"\n}"
             }
           ]
         },
@@ -2406,6 +2567,85 @@
                 }
               ],
               "body": "{\n  \"id\": \"1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a\",\n  \"eventId\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"REJECTED\",\n  \"rejectionReason\": \"SOLD_OUT\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order history - sold out",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('records the placement and the rejection', () => {",
+                  "    const steps = pm.response.json().transitions.map(t => `${t.fromStatus || '-'}>${t.toStatus}:${t.reason}`);",
+                  "    pm.expect(steps).to.eql(['->QUEUED:ORDER_PLACED', 'QUEUED>REJECTED:SOLD_OUT']);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{soldOutOrderId}}/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{soldOutOrderId}}",
+                "history"
+              ]
+            },
+            "description": "The history of the rejected order shows why it was rejected."
+          },
+          "response": [
+            {
+              "name": "Retrieve order history - sold out",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{soldOutOrderId}}/history",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{soldOutOrderId}}",
+                    "history"
+                  ]
+                },
+                "description": "The history of the rejected order shows why it was rejected."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"orderId\": \"1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a\",\n  \"transitions\": [\n    {\n      \"toStatus\": \"QUEUED\",\n      \"reason\": \"ORDER_PLACED\",\n      \"occurredAt\": \"2026-10-10T12:00:00.000Z\"\n    },\n    {\n      \"fromStatus\": \"QUEUED\",\n      \"toStatus\": \"REJECTED\",\n      \"reason\": \"SOLD_OUT\",\n      \"occurredAt\": \"2026-10-10T12:00:00.120Z\"\n    }\n  ]\n}"
             }
           ]
         },

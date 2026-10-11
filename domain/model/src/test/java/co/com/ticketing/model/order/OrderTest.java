@@ -34,7 +34,7 @@ class OrderTest {
 
     @Test
     void rejectKeepsTheReason() {
-        RejectedOrder rejected = QUEUED.reject(RejectionReason.SOLD_OUT);
+        RejectedOrder rejected = QUEUED.reject(RejectionReason.SOLD_OUT, NOW);
 
         assertThat(rejected.details()).isEqualTo(DETAILS);
         assertThat(rejected.rejectionReason()).isEqualTo(RejectionReason.SOLD_OUT);
@@ -52,7 +52,7 @@ class OrderTest {
 
     @Test
     void expireKeepsTheDetails() {
-        ExpiredOrder expired = QUEUED.reserve(NOW, Duration.ofMinutes(10)).expire();
+        ExpiredOrder expired = QUEUED.reserve(NOW, Duration.ofMinutes(10)).expire(NOW);
 
         assertThat(expired.details()).isEqualTo(DETAILS);
         assertThat(expired.status()).isEqualTo(OrderStatus.EXPIRED);
@@ -83,14 +83,38 @@ class OrderTest {
 
     @Test
     void aReservedOrderAlwaysHasAnExpiration() {
-        assertThatThrownBy(() -> new ReservedOrder(DETAILS, null))
+        assertThatThrownBy(() -> new ReservedOrder(DETAILS, null, NOW))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("expiresAt is required");
     }
 
     @Test
+    void everyStateAfterQueuedKnowsWhenItStarted() {
+        assertThatThrownBy(() -> new ReservedOrder(DETAILS, NOW, null)).hasMessage("updatedAt is required");
+        assertThatThrownBy(() -> new RejectedOrder(DETAILS, RejectionReason.SOLD_OUT, null))
+                .hasMessage("updatedAt is required");
+        assertThatThrownBy(() -> new ExpiredOrder(DETAILS, null)).hasMessage("updatedAt is required");
+        assertThatThrownBy(() -> new SoldOrder(DETAILS, null)).hasMessage("updatedAt is required");
+    }
+
+    @Test
+    void aQueuedOrderWasUpdatedWhenItWasCreated() {
+        assertThat(QUEUED.updatedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void eachTransitionRecordsWhenItHappened() {
+        Instant later = NOW.plus(Duration.ofMinutes(3));
+
+        assertThat(QUEUED.reserve(later, Duration.ofMinutes(10)).updatedAt()).isEqualTo(later);
+        assertThat(QUEUED.reject(RejectionReason.SOLD_OUT, later).updatedAt()).isEqualTo(later);
+        assertThat(QUEUED.reserve(NOW, Duration.ofMinutes(10)).confirm(later).updatedAt()).isEqualTo(later);
+        assertThat(QUEUED.reserve(NOW, Duration.ofMinutes(10)).expire(later).updatedAt()).isEqualTo(later);
+    }
+
+    @Test
     void aRejectedOrderAlwaysHasAReason() {
-        assertThatThrownBy(() -> new RejectedOrder(DETAILS, null))
+        assertThatThrownBy(() -> new RejectedOrder(DETAILS, null, NOW))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("rejectionReason is required");
     }
