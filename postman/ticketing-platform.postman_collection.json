@@ -3303,6 +3303,863 @@
       ]
     },
     {
+      "name": "Complimentary",
+      "description": "The organizer gives tickets away (COMPLIMENTARY). The request needs the X-Admin-Key header; locally its value is local-admin-key (docker-compose.yml).",
+      "item": [
+        {
+          "name": "Create event - for complimentary tickets",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('complimentaryEventId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events"
+              ]
+            },
+            "description": "Creates an event with 3 tickets: the organizer gives 2 of them away and then asks for 2 more than are left.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Gala Night\",\n  \"venue\": \"Teatro Metropolitano\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Create event - for complimentary tickets",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "Creates an event with 3 tickets: the organizer gives 2 of them away and then asks for 2 more than are left.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Gala Night\",\n  \"venue\": \"Teatro Metropolitano\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 3\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e\",\n  \"name\": \"Gala Night\",\n  \"venue\": \"Teatro Metropolitano\",\n  \"startsAt\": \"2026-11-10T01:00:00Z\",\n  \"finishesAt\": \"2026-11-10T04:00:00Z\",\n  \"capacity\": 3,\n  \"inventory\": {\n    \"available\": 3,\n    \"reserved\": 0,\n    \"pendingConfirmation\": 0,\n    \"sold\": 0,\n    \"complimentary\": 0\n  },\n  \"createdAt\": \"2026-10-11T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Issue complimentary - without the admin key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 403 Forbidden', () => pm.response.to.have.status(403));",
+                  "pm.test('returns its own error code', () => pm.expect(pm.response.json().code).to.eql('ADMIN_ACCESS_DENIED'));"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A new Idempotency-Key for each run of the collection; the retry below sends it again",
+                  "pm.collectionVariables.set('complimentaryKey', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{complimentaryKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{complimentaryEventId}}",
+                "complimentary"
+              ]
+            },
+            "description": "Only the organizer can give tickets away. Without a valid X-Admin-Key header the request is denied and no ticket moves.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Issue complimentary - without the admin key",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{complimentaryKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{complimentaryEventId}}",
+                    "complimentary"
+                  ]
+                },
+                "description": "Only the organizer can give tickets away. Without a valid X-Admin-Key header the request is denied and no ticket moves.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"this operation requires a valid X-Admin-Key header\",\n  \"instance\": \"/api/v1/events/9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e/complimentary\",\n  \"status\": 403,\n  \"title\": \"Forbidden\",\n  \"code\": \"ADMIN_ACCESS_DENIED\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Issue complimentary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 201 Created', () => pm.response.to.have.status(201));",
+                  "const order = pm.response.json();",
+                  "pm.test('returns the complimentary order of the guest', () => {",
+                  "    pm.expect(order.eventId).to.eql(pm.collectionVariables.get('complimentaryEventId'));",
+                  "    pm.expect(order.customerId).to.eql(pm.collectionVariables.get('recipientId'));",
+                  "    pm.expect(order.quantity).to.eql(2);",
+                  "    pm.expect(order.status).to.eql('COMPLIMENTARY');",
+                  "    pm.expect(order.ticketStatus).to.eql('COMPLIMENTARY');",
+                  "    pm.expect(order).to.not.have.property('expiresAt');",
+                  "});",
+                  "pm.test('returns the Location of the new order', () => {",
+                  "    pm.expect(pm.response.headers.get('Location')).to.eql(`/api/v1/orders/${order.id}`);",
+                  "    pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('false');",
+                  "});",
+                  "pm.collectionVariables.set('complimentaryOrderId', order.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Admin-Key",
+                "value": "{{adminKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{complimentaryKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{complimentaryEventId}}",
+                "complimentary"
+              ]
+            },
+            "description": "Gives 2 tickets away to a guest. One conditional DynamoDB transaction takes them from the available tickets, creates the order, records its history and claims the Idempotency-Key. Returns 201: there is no queue and no payment.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Issue complimentary",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Admin-Key",
+                    "value": "{{adminKey}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{complimentaryKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{complimentaryEventId}}",
+                    "complimentary"
+                  ]
+                },
+                "description": "Gives 2 tickets away to a guest. One conditional DynamoDB transaction takes them from the available tickets, creates the order, records its history and claims the Idempotency-Key. Returns 201: there is no queue and no payment.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"5f4e3d2c-1b0a-4c9d-8e7f-6a5b4c3d2e1f\",\n  \"eventId\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e\",\n  \"customerId\": \"guest-001\",\n  \"quantity\": 2,\n  \"status\": \"COMPLIMENTARY\",\n  \"ticketStatus\": \"COMPLIMENTARY\",\n  \"createdAt\": \"2026-10-11T12:00:00Z\",\n  \"updatedAt\": \"2026-10-11T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Issue complimentary - retry with the same key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('returns the same order, replayed', () => {",
+                  "    pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('complimentaryOrderId'));",
+                  "    pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('true');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Admin-Key",
+                "value": "{{adminKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{complimentaryKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{complimentaryEventId}}",
+                "complimentary"
+              ]
+            },
+            "description": "Sends the same request again with the same Idempotency-Key, as a client does after a timeout. It returns the same order and no more tickets are taken.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Issue complimentary - retry with the same key",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Admin-Key",
+                    "value": "{{adminKey}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{complimentaryKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{complimentaryEventId}}",
+                    "complimentary"
+                  ]
+                },
+                "description": "Sends the same request again with the same Idempotency-Key, as a client does after a timeout. It returns the same order and no more tickets are taken.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"5f4e3d2c-1b0a-4c9d-8e7f-6a5b4c3d2e1f\",\n  \"eventId\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e\",\n  \"customerId\": \"guest-001\",\n  \"quantity\": 2,\n  \"status\": \"COMPLIMENTARY\",\n  \"ticketStatus\": \"COMPLIMENTARY\",\n  \"createdAt\": \"2026-10-11T12:00:00Z\",\n  \"updatedAt\": \"2026-10-11T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Issue complimentary - more tickets than available",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('returns its own error code', () => pm.expect(pm.response.json().code).to.eql('TICKETS_SOLD_OUT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Admin-Key",
+                "value": "{{adminKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{complimentaryEventId}}",
+                "complimentary"
+              ]
+            },
+            "description": "Asks for 2 more tickets when only 1 is left. The condition of the transaction fails, so nothing is written.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Issue complimentary - more tickets than available",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Admin-Key",
+                    "value": "{{adminKey}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{$guid}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{complimentaryEventId}}",
+                    "complimentary"
+                  ]
+                },
+                "description": "Asks for 2 more tickets when only 1 is left. The condition of the transaction fails, so nothing is written.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"event 9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e does not have 2 tickets available\",\n  \"instance\": \"/api/v1/events/9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e/complimentary\",\n  \"status\": 409,\n  \"title\": \"Conflict\",\n  \"code\": \"TICKETS_SOLD_OUT\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve availability - after the complimentary tickets",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('counts the complimentary tickets apart', () => {",
+                  "    const availability = pm.response.json();",
+                  "    pm.expect(availability.available).to.eql(1);",
+                  "    pm.expect(availability.complimentary).to.eql(2);",
+                  "    pm.expect(availability.sold).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{complimentaryEventId}}",
+                "availability"
+              ]
+            },
+            "description": "The 2 tickets given away left the available ones; the retry and the failed request did not move any ticket."
+          },
+          "response": [
+            {
+              "name": "Retrieve availability - after the complimentary tickets",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/availability",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{complimentaryEventId}}",
+                    "availability"
+                  ]
+                },
+                "description": "The 2 tickets given away left the available ones; the retry and the failed request did not move any ticket."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"eventId\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e\",\n  \"capacity\": 3,\n  \"available\": 1,\n  \"reserved\": 0,\n  \"pendingConfirmation\": 0,\n  \"sold\": 0,\n  \"complimentary\": 2,\n  \"asOf\": \"2026-10-11T12:00:01Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order - as the guest",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('returns the complimentary order', () => pm.expect(pm.response.json().status).to.eql('COMPLIMENTARY'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{recipientId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{complimentaryOrderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{complimentaryOrderId}}"
+              ]
+            },
+            "description": "The guest who received the tickets can read the order with their own customer id."
+          },
+          "response": [
+            {
+              "name": "Retrieve order - as the guest",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{recipientId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{complimentaryOrderId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{complimentaryOrderId}}"
+                  ]
+                },
+                "description": "The guest who received the tickets can read the order with their own customer id."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"5f4e3d2c-1b0a-4c9d-8e7f-6a5b4c3d2e1f\",\n  \"eventId\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e\",\n  \"customerId\": \"guest-001\",\n  \"quantity\": 2,\n  \"status\": \"COMPLIMENTARY\",\n  \"ticketStatus\": \"COMPLIMENTARY\",\n  \"createdAt\": \"2026-10-11T12:00:00Z\",\n  \"updatedAt\": \"2026-10-11T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order history - complimentary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('has one transition, written when the tickets were issued', () => {",
+                  "    const transitions = pm.response.json().transitions;",
+                  "    pm.expect(transitions).to.have.lengthOf(1);",
+                  "    pm.expect(transitions[0]).to.not.have.property('fromStatus');",
+                  "    pm.expect(transitions[0].toStatus).to.eql('COMPLIMENTARY');",
+                  "    pm.expect(transitions[0].reason).to.eql('COMPLIMENTARY_ISSUED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{recipientId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{complimentaryOrderId}}/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{complimentaryOrderId}}",
+                "history"
+              ]
+            },
+            "description": "A complimentary order has a single transition: it is born with its tickets issued."
+          },
+          "response": [
+            {
+              "name": "Retrieve order history - complimentary",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{recipientId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{complimentaryOrderId}}/history",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{complimentaryOrderId}}",
+                    "history"
+                  ]
+                },
+                "description": "A complimentary order has a single transition: it is born with its tickets issued."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"orderId\": \"5f4e3d2c-1b0a-4c9d-8e7f-6a5b4c3d2e1f\",\n  \"transitions\": [\n    {\n      \"toStatus\": \"COMPLIMENTARY\",\n      \"reason\": \"COMPLIMENTARY_ISSUED\",\n      \"occurredAt\": \"2026-10-11T12:00:00Z\"\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Confirm order - complimentary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('returns its own error code', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_RESERVED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{recipientId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{complimentaryOrderId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{complimentaryOrderId}}",
+                "confirm"
+              ]
+            },
+            "description": "A complimentary order has nothing to pay, so it cannot be confirmed."
+          },
+          "response": [
+            {
+              "name": "Confirm order - complimentary",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{recipientId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{complimentaryOrderId}}/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{complimentaryOrderId}}",
+                    "confirm"
+                  ]
+                },
+                "description": "A complimentary order has nothing to pay, so it cannot be confirmed."
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"order 5f4e3d2c-1b0a-4c9d-8e7f-6a5b4c3d2e1f cannot be confirmed because it is COMPLIMENTARY\",\n  \"instance\": \"/api/v1/orders/5f4e3d2c-1b0a-4c9d-8e7f-6a5b4c3d2e1f/confirm\",\n  \"status\": 409,\n  \"title\": \"Conflict\",\n  \"code\": \"ORDER_NOT_RESERVED\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Sold out",
       "description": "Shows an order that asks for more tickets than are left: it is accepted, and the queue consumer rejects it.",
       "item": [
@@ -4040,6 +4897,26 @@
     },
     {
       "key": "declinedOrderId",
+      "value": ""
+    },
+    {
+      "key": "adminKey",
+      "value": "local-admin-key"
+    },
+    {
+      "key": "recipientId",
+      "value": "guest-001"
+    },
+    {
+      "key": "complimentaryEventId",
+      "value": ""
+    },
+    {
+      "key": "complimentaryOrderId",
+      "value": ""
+    },
+    {
+      "key": "complimentaryKey",
       "value": ""
     }
   ]
