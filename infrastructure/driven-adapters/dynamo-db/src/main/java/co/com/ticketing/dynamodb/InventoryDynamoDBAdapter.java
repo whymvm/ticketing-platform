@@ -1,0 +1,112 @@
+package co.com.ticketing.dynamodb;
+
+import co.com.ticketing.dynamodb.config.DynamoDBProperties;
+import co.com.ticketing.model.exception.ConcurrencyConflictException;
+import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
+import co.com.ticketing.model.exception.TicketsSoldOutException;
+import co.com.ticketing.model.order.OrderDetails;
+import co.com.ticketing.model.order.OrderStatus;
+import co.com.ticketing.model.order.ReservedOrder;
+import co.com.ticketing.model.order.gateways.InventoryUpdater;
+import org.springframework.stereotype.Repository;
+import reactor.core.publisher.Mono;
+import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.CancellationReason;
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
+import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
+import software.amazon.awssdk.services.dynamodb.model.Update;
+
+import java.util.List;
+import java.util.Map;
+
+import static co.com.ticketing.dynamodb.DynamoDBExpressions.QUEUED_VALUE;
+import static co.com.ticketing.dynamodb.DynamoDBExpressions.STATUS_IS_QUEUED;
+import static co.com.ticketing.dynamodb.DynamoDBExpressions.STATUS_NAME;
+
+/**
+ * Updates the ticket inventory of events in DynamoDB.
+ */
+@Repository
+public class InventoryDynamoDBAdapter implements InventoryUpdater {
+
+    // Position of each item in the transaction, also used to read its cancellation reason
+    private static final int EVENT_ITEM = 0;
+    private static final int ORDER_ITEM = 1;
+
+    private static final String CONDITIONAL_CHECK_FAILED = "ConditionalCheckFailed";
+    private static final String TRANSACTION_CONFLICT = "TransactionConflict";
+
+    private final DynamoDbAsyncClient client;
+    private final DynamoDBProperties.Tables tables;
+
+    public InventoryDynamoDBAdapter(DynamoDbAsyncClient client, DynamoDBProperties properties) {
+        this.client = client;
+        this.tables = properties.tables();
+    }
+
+    @Override
+    public Mono<ReservedOrder> reserveTickets(ReservedOrder order) {
+        return Mono.fromFuture(() -> client.transactWriteItems(reservation(order)))
+                .onErrorMap(TransactionCanceledException.class, error -> cancellationCause(error, order))
+                .thenReturn(order);
+    }
+
+    private TransactWriteItemsRequest reservation(ReservedOrder order) {
+        return TransactWriteItemsRequest.builder()
+                .transactItems(holdTickets(order), markReserved(order))
+                .build();
+    }
+
+    // Partial update of the event: only its counters change, and only if there are enough tickets
+    private TransactWriteItem holdTickets(ReservedOrder order) {
+        OrderDetails details = order.details();
+        return TransactWriteItem.builder().update(Update.builder()
+                        .tableName(tables.events())
+                        .key(Map.of("id", AttributeValue.fromS(details.eventId())))
+                        .updateExpression("SET #available = #available - :quantity, #reserved = #reserved + :quantity")
+                        .conditionExpression("#available >= :quantity")
+                        .expressionAttributeNames(Map.of("#available", "available", "#reserved", "reserved"))
+                        .expressionAttributeValues(Map.of(":quantity",
+                                AttributeValue.fromN(String.valueOf(details.quantity()))))
+                        .build())
+                .build();
+    }
+
+    // Partial update of the order: only its status and expiration change, and only if it is still queued
+    private TransactWriteItem markReserved(ReservedOrder order) {
+        return TransactWriteItem.builder().update(Update.builder()
+                        .tableName(tables.orders())
+                        .key(Map.of("id", AttributeValue.fromS(order.details().id())))
+                        .updateExpression("SET #status = :reserved, #expiresAt = :expiresAt")
+                        .conditionExpression(STATUS_IS_QUEUED)
+                        .expressionAttributeNames(Map.of(STATUS_NAME, "status", "#expiresAt", "expiresAt"))
+                        .expressionAttributeValues(Map.of(
+                                ":reserved", AttributeValue.fromS(OrderStatus.RESERVED.name()),
+                                QUEUED_VALUE, AttributeValue.fromS(OrderStatus.QUEUED.name()),
+                                ":expiresAt", AttributeValue.fromS(order.expiresAt().toString())))
+                        .build())
+                .build();
+    }
+
+    // The order check goes first: if the order was already processed, the event stock does not matter
+    private static Throwable cancellationCause(TransactionCanceledException error, ReservedOrder order) {
+        List<String> codes = error.cancellationReasons().stream().map(CancellationReason::code).toList();
+        OrderDetails details = order.details();
+        if (hasCode(codes, ORDER_ITEM, CONDITIONAL_CHECK_FAILED)) {
+            return new OrderAlreadyProcessedException(details.id());
+        }
+        if (hasCode(codes, EVENT_ITEM, CONDITIONAL_CHECK_FAILED)) {
+            return new TicketsSoldOutException(details.eventId(), details.quantity());
+        }
+        if (codes.contains(TRANSACTION_CONFLICT)) {
+            return new ConcurrencyConflictException(details.id());
+        }
+        return error;
+    }
+
+    private static boolean hasCode(List<String> codes, int item, String code) {
+        return codes.size() > item && code.equals(codes.get(item));
+    }
+}

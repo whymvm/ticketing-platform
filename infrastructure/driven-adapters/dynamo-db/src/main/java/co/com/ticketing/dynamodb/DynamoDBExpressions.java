@@ -13,6 +13,11 @@ final class DynamoDBExpressions {
             .putExpressionName("#id", "id")
             .build();
 
+    // Makes an order update fail if another process already moved the order out of QUEUED
+    static final String STATUS_IS_QUEUED = "#status = :queued";
+    static final String STATUS_NAME = "#status";
+    static final String QUEUED_VALUE = ":queued";
+
     private DynamoDBExpressions() {
     }
 }
