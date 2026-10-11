@@ -1,0 +1,76 @@
+// Shortcuts for the daily work on the project. They are listed with: ./gradlew tasks --group ticketing
+// The Docker tasks need Docker; postmanTest needs Node.js (npx).
+
+def ticketing = 'ticketing'
+def terraformDir = layout.projectDirectory.dir('infra/terraform').asFile.absolutePath
+def coverageHtml = layout.buildDirectory.file('reports/coverage/html/index.html').get().asFile.absolutePath
+
+tasks.register('coverage') {
+    group = ticketing
+    description = 'Runs every test, builds the coverage report and checks the minimum coverage.'
+    dependsOn 'coverageReport', 'coverageVerification'
+    doLast {
+        println "Coverage report: file://${coverageHtml}"
+    }
+}
+
+// The PIT aggregate plugin does not support the configuration cache; Gradle turns the cache off only for builds
+// that run it
+tasks.named('pitestReportAggregate') {
+    notCompatibleWithConfigurationCache('the PIT aggregate plugin does not support the configuration cache')
+}
+
+tasks.register('mutationTest') {
+    group = ticketing
+    description = 'Runs the mutation tests (PIT) of every module and merges their reports. It is slow.'
+    dependsOn subprojects.collect { it.tasks.named('pitest') }, 'pitestReportAggregate'
+}
+
+tasks.register('localUp', Exec) {
+    group = ticketing
+    description = 'Builds the image and starts LocalStack, Terraform and the application; waits until the application is healthy.'
+    commandLine 'docker', 'compose', 'up', '--build', '--detach', '--wait'
+}
+
+tasks.register('localDown', Exec) {
+    group = ticketing
+    description = 'Stops the local environment and keeps its volumes.'
+    commandLine 'docker', 'compose', 'down'
+}
+
+tasks.register('localReset', Exec) {
+    group = ticketing
+    description = 'Stops the local environment and deletes its volumes (Terraform state and provider cache).'
+    commandLine 'docker', 'compose', 'down', '--volumes'
+}
+
+tasks.register('localLogs', Exec) {
+    group = ticketing
+    description = 'Shows the last logs of the application.'
+    commandLine 'docker', 'compose', 'logs', '--tail', '200', 'app'
+}
+
+tasks.register('postmanTest', Exec) {
+    group = ticketing
+    description = 'Runs the Postman collection against http://localhost:8080 with Newman.'
+    commandLine 'npx', '--yes', 'newman@6.2.1', 'run', 'postman/ticketing-platform.postman_collection.json'
+    mustRunAfter 'localUp'
+}
+
+tasks.register('smokeTest') {
+    group = ticketing
+    description = 'Starts the local environment and runs the Postman collection against it, as the CI does.'
+    dependsOn 'localUp', 'postmanTest'
+}
+
+tasks.register('terraformValidate', Exec) {
+    group = ticketing
+    description = 'Checks the format and validates the Terraform code with the same image the CI uses.'
+    commandLine 'docker', 'run', '--rm',
+            '-v', "${terraformDir}:/infra",
+            '-e', 'TF_DATA_DIR=/tmp/.terraform',
+            '-w', '/infra',
+            '--entrypoint', 'sh',
+            'hashicorp/terraform:1.16.3',
+            '-c', 'terraform fmt -check -recursive && cd envs/local && terraform init -backend=false -input=false > /dev/null && terraform validate'
+}

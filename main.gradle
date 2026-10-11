@@ -1,3 +1,4 @@
+apply plugin: 'base'
 apply plugin: 'info.solidsoft.pitest.aggregator'
 
 allprojects {
@@ -90,8 +91,9 @@ subprojects {
         jvmArgs = ["-XX:+AllowRedefinitionToAddDeleteMethods"]
     }
 
+    // Mutation testing is slow, so it only runs when it is asked for (./gradlew mutationTest)
     jacocoTestReport {
-        dependsOn test, 'pitest'
+        dependsOn test
         reports {
             xml.setRequired true
             xml.setOutputLocation layout.buildDirectory.file("reports/jacoco.xml")
@@ -119,6 +121,56 @@ tasks.register('jacocoMergedReport', JacocoReport) {
         html.setRequired true
     }
 }
+
+// Line coverage of the whole project (every module together), the figure the technical test asks for. Some modules
+// are almost only configuration (MainApplication, for example), so the rule applies to the total, not per module.
+def coverageModules = subprojects.findAll { it.file('src/test').exists() || it.file('src/main').exists() }
+def coverageExecutionData = files(coverageModules.collect { it.layout.buildDirectory.file('jacoco/test.exec') })
+        .filter { it.exists() }
+def coverageSources = files(coverageModules.collect { it.sourceSets.main.allSource.srcDirs })
+def coverageClasses = files(coverageModules.collect { it.sourceSets.main.output })
+def minimumLineCoverage = providers.gradleProperty('minLineCoverage').map { new BigDecimal(it) }
+
+tasks.register('coverageReport', JacocoReport) {
+    group = 'verification'
+    description = 'Builds the coverage report of the whole project (HTML and XML).'
+    dependsOn coverageModules.collect { it.tasks.named('test') }
+    executionData.from(coverageExecutionData)
+    sourceDirectories.from(coverageSources)
+    classDirectories.from(coverageClasses)
+    reports {
+        xml.required = true
+        xml.outputLocation = layout.buildDirectory.file('reports/coverage/coverage.xml')
+        html.required = true
+        html.outputLocation = layout.buildDirectory.dir('reports/coverage/html')
+        csv.required = false
+    }
+}
+
+tasks.register('coverageVerification', JacocoCoverageVerification) {
+    group = 'verification'
+    description = 'Fails the build when the line coverage of the whole project is below minLineCoverage (gradle.properties).'
+    dependsOn coverageModules.collect { it.tasks.named('test') }
+    executionData.from(coverageExecutionData)
+    sourceDirectories.from(coverageSources)
+    classDirectories.from(coverageClasses)
+    violationRules {
+        rule {
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = minimumLineCoverage.get()
+            }
+        }
+    }
+}
+
+// ./gradlew build (and check) fails below the minimum coverage
+tasks.named('check') {
+    dependsOn 'coverageVerification'
+}
+
+apply from: 'gradle/dev-tasks.gradle'
 
 tasks.withType(JavaCompile).configureEach {
     options.compilerArgs = [
