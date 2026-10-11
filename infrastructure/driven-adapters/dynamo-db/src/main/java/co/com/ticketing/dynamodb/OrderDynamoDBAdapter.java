@@ -56,13 +56,18 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
     @Override
     public Mono<QueuedOrder> save(QueuedOrder order) {
         return Mono.fromFuture(() -> table.putItem(newItemRequest(order)))
-                .onErrorMap(ConditionalCheckFailedException.class, e -> new OrderAlreadyExistsException(order.details().id()))
+                .onErrorMap(ConditionalCheckFailedException.class, _ -> new OrderAlreadyExistsException(order.details().id()))
                 .thenReturn(order);
     }
 
+    // Strongly consistent read: the consumer reads an order right after it is saved, the confirmation reads it
+    // again after losing a race, and a client reads it right after the 202. A default (eventually consistent)
+    // read could miss those writes
     @Override
     public Mono<Order> findById(String id) {
-        return Mono.fromFuture(() -> table.getItem(Key.builder().partitionValue(id).build()))
+        return Mono.fromFuture(() -> table.getItem(request -> request
+                        .key(key -> key.partitionValue(id))
+                        .consistentRead(true)))
                 .map(OrderEntity::toDomain);
     }
 
@@ -82,7 +87,7 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
     public Mono<RejectedOrder> markRejected(RejectedOrder order) {
         return Mono.fromFuture(() -> client.updateItem(rejection(order)))
                 .onErrorMap(ConditionalCheckFailedException.class,
-                        e -> new OrderAlreadyProcessedException(order.details().id()))
+                        _ -> new OrderAlreadyProcessedException(order.details().id()))
                 .thenReturn(order);
     }
 
