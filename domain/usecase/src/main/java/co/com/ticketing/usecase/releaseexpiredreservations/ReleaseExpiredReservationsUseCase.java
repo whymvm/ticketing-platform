@@ -3,7 +3,6 @@ package co.com.ticketing.usecase.releaseexpiredreservations;
 import co.com.ticketing.model.exception.ConcurrencyConflictException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.order.ExpiredOrder;
-import co.com.ticketing.model.order.ReservedOrder;
 import co.com.ticketing.model.order.gateways.InventoryUpdater;
 import co.com.ticketing.model.order.gateways.OrderRetriever;
 import lombok.RequiredArgsConstructor;
@@ -30,7 +29,7 @@ public class ReleaseExpiredReservationsUseCase {
         Instant now = clock.instant();
         return orderRetriever.findExpiredReservations(now)
                 .filter(order -> order.isExpiredAt(now))
-                .map(ReservedOrder::expire)
+                .map(order -> order.expire(now))
                 .flatMap(this::release, MAX_CONCURRENT_RELEASES);
     }
 

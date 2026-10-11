@@ -35,6 +35,7 @@ aws:
     tables:
       events: ${EVENTS_TABLE:}
       orders: ${ORDERS_TABLE:}
+      orderHistory: ${ORDER_HISTORY_TABLE:}
 adapter:
   sqs:
     region: ${aws.region}

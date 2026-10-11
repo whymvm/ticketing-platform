@@ -21,11 +21,13 @@ import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.enhanced.dynamodb.model.Page;
 import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
-import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
-import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.Put;
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
+import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
+import software.amazon.awssdk.services.dynamodb.model.Update;
 
 import java.time.Instant;
 import java.util.Map;
@@ -35,28 +37,35 @@ import static co.com.ticketing.dynamodb.DynamoDBExpressions.STATUS_IS_QUEUED;
 import static co.com.ticketing.dynamodb.DynamoDBExpressions.STATUS_NAME;
 
 /**
- * Stores, retrieves and updates orders in DynamoDB.
+ * Stores, retrieves and updates orders in DynamoDB. Every write also records the transition in the order history,
+ * in the same transaction.
  */
 @Repository
 public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, OrderStatusUpdater {
 
+    private static final TableSchema<OrderEntity> SCHEMA = TableSchema.fromBean(OrderEntity.class);
+
+    // Position of the order in each transaction, also used to read its cancellation reason
+    private static final int ORDER_ITEM = 0;
+
     private final DynamoDbAsyncTable<OrderEntity> table;
     private final DynamoDbAsyncIndex<OrderEntity> expiringOrders;
     private final DynamoDbAsyncClient client;
-    private final String tableName;
+    private final DynamoDBProperties.Tables tables;
 
     public OrderDynamoDBAdapter(DynamoDbEnhancedAsyncClient enhancedClient, DynamoDbAsyncClient client,
                                 DynamoDBProperties properties) {
-        this.tableName = properties.tables().orders();
-        this.table = enhancedClient.table(tableName, TableSchema.fromBean(OrderEntity.class));
+        this.tables = properties.tables();
+        this.table = enhancedClient.table(tables.orders(), SCHEMA);
         this.expiringOrders = table.index(ExpiringOrdersIndex.NAME);
         this.client = client;
     }
 
     @Override
     public Mono<QueuedOrder> save(QueuedOrder order) {
-        return Mono.fromFuture(() -> table.putItem(newItemRequest(order)))
-                .onErrorMap(ConditionalCheckFailedException.class, _ -> new OrderAlreadyExistsException(order.details().id()))
+        return transaction(newOrder(order), order)
+                .onErrorMap(OrderDynamoDBAdapter::orderConditionFailed,
+                        _ -> new OrderAlreadyExistsException(order.details().id()))
                 .thenReturn(order);
     }
 
@@ -85,31 +94,51 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
 
     @Override
     public Mono<RejectedOrder> markRejected(RejectedOrder order) {
-        return Mono.fromFuture(() -> client.updateItem(rejection(order)))
-                .onErrorMap(ConditionalCheckFailedException.class,
+        return transaction(rejection(order), order)
+                .onErrorMap(OrderDynamoDBAdapter::orderConditionFailed,
                         _ -> new OrderAlreadyProcessedException(order.details().id()))
                 .thenReturn(order);
     }
 
-    // Partial update: only the status and the reason change, and only if the order is still queued
-    private UpdateItemRequest rejection(RejectedOrder order) {
-        return UpdateItemRequest.builder()
-                .tableName(tableName)
-                .key(Map.of("id", AttributeValue.fromS(order.details().id())))
-                .updateExpression("SET #status = :rejected, #rejectionReason = :rejectionReason")
-                .conditionExpression(STATUS_IS_QUEUED)
-                .expressionAttributeNames(Map.of(STATUS_NAME, "status", "#rejectionReason", "rejectionReason"))
-                .expressionAttributeValues(Map.of(
-                        ":rejected", AttributeValue.fromS(OrderStatus.REJECTED.name()),
-                        QUEUED_VALUE, AttributeValue.fromS(OrderStatus.QUEUED.name()),
-                        ":rejectionReason", AttributeValue.fromS(order.rejectionReason().name())))
+    private Mono<Void> transaction(TransactWriteItem orderChange, Order order) {
+        return Mono.fromFuture(() -> client.transactWriteItems(TransactWriteItemsRequest.builder()
+                        .transactItems(orderChange, OrderHistoryWrites.record(tables.orderHistory(), order))
+                        .build()))
+                .then();
+    }
+
+    // A new order never overwrites an existing one with the same id
+    private TransactWriteItem newOrder(QueuedOrder order) {
+        return TransactWriteItem.builder().put(Put.builder()
+                        .tableName(tables.orders())
+                        .item(SCHEMA.itemToMap(OrderEntity.from(order), true))
+                        .conditionExpression(DynamoDBExpressions.ID_NOT_EXISTS.expression())
+                        .expressionAttributeNames(DynamoDBExpressions.ID_NOT_EXISTS.expressionNames())
+                        .build())
                 .build();
     }
 
-    private static PutItemEnhancedRequest<OrderEntity> newItemRequest(QueuedOrder order) {
-        return PutItemEnhancedRequest.builder(OrderEntity.class)
-                .item(OrderEntity.from(order))
-                .conditionExpression(DynamoDBExpressions.ID_NOT_EXISTS)
+    // Partial update: only the status, the reason and the update time change, and only if the order is still queued
+    private TransactWriteItem rejection(RejectedOrder order) {
+        return TransactWriteItem.builder().update(Update.builder()
+                        .tableName(tables.orders())
+                        .key(Map.of("id", AttributeValue.fromS(order.details().id())))
+                        .updateExpression("SET #status = :rejected, #rejectionReason = :rejectionReason, "
+                                + "#updatedAt = :updatedAt")
+                        .conditionExpression(STATUS_IS_QUEUED)
+                        .expressionAttributeNames(Map.of(STATUS_NAME, "status", "#rejectionReason", "rejectionReason",
+                                "#updatedAt", "updatedAt"))
+                        .expressionAttributeValues(Map.of(
+                                ":rejected", AttributeValue.fromS(OrderStatus.REJECTED.name()),
+                                QUEUED_VALUE, AttributeValue.fromS(OrderStatus.QUEUED.name()),
+                                ":rejectionReason", AttributeValue.fromS(order.rejectionReason().name()),
+                                ":updatedAt", AttributeValue.fromS(order.updatedAt().toString())))
+                        .build())
                 .build();
+    }
+
+    private static boolean orderConditionFailed(Throwable error) {
+        return error instanceof TransactionCanceledException cancelled
+                && TransactionCancellation.failedCondition(cancelled, ORDER_ITEM);
     }
 }

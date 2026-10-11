@@ -36,7 +36,7 @@ class RetrieveOrderUseCaseTest {
 
     @Test
     void returnsTheOrderInItsCurrentState() {
-        var rejected = ORDER.reject(RejectionReason.SOLD_OUT);
+        var rejected = ORDER.reject(RejectionReason.SOLD_OUT, Instant.parse("2026-10-10T12:05:00Z"));
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(rejected));
 
         StepVerifier.create(useCase.run("o-1", "c-1"))

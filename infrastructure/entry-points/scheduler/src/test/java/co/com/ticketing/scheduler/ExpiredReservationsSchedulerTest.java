@@ -29,7 +29,8 @@ class ExpiredReservationsSchedulerTest {
     @Test
     void releasesTheExpiredReservations() {
         ExpiredOrder expired = new ExpiredOrder(
-                new OrderDetails("o-1", "e-1", "c-1", 2, Instant.parse("2026-10-10T12:00:00Z")));
+                new OrderDetails("o-1", "e-1", "c-1", 2, Instant.parse("2026-10-10T12:00:00Z")),
+                Instant.parse("2026-10-10T12:10:00Z"));
         when(releaseExpiredReservationsUseCase.run()).thenReturn(Flux.just(expired));
 
         StepVerifier.create(scheduler.releaseExpiredReservations()).verifyComplete();

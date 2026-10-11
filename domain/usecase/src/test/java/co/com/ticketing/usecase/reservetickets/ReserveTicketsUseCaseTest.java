@@ -42,7 +42,7 @@ class ReserveTicketsUseCaseTest {
     private static final Instant NOW = Instant.parse("2026-10-10T12:00:00Z");
     private static final QueuedOrder QUEUED = new QueuedOrder(new OrderDetails("o-1", "e-1", "c-1", 2, NOW));
     private static final ReservedOrder RESERVED = QUEUED.reserve(NOW, Duration.ofMinutes(10));
-    private static final RejectedOrder REJECTED = QUEUED.reject(RejectionReason.SOLD_OUT);
+    private static final RejectedOrder REJECTED = QUEUED.reject(RejectionReason.SOLD_OUT, NOW);
     private static final Event OPEN_EVENT = event(NOW.plus(Duration.ofDays(30)));
     private static final Event STARTED_EVENT = event(NOW.minus(Duration.ofMinutes(5)));
 
@@ -92,7 +92,7 @@ class ReserveTicketsUseCaseTest {
 
     @Test
     void rejectsTheOrderWhenTheEventStartedWhileItWasQueued() {
-        RejectedOrder closed = QUEUED.reject(RejectionReason.EVENT_CLOSED);
+        RejectedOrder closed = QUEUED.reject(RejectionReason.EVENT_CLOSED, NOW);
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(QUEUED));
         when(eventRetriever.findById("e-1")).thenReturn(Mono.just(STARTED_EVENT));
         when(orderStatusUpdater.markRejected(closed)).thenReturn(Mono.just(closed));
@@ -118,7 +118,7 @@ class ReserveTicketsUseCaseTest {
     @Test
     void ignoresAnOrderThatIsNoLongerQueued() {
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(RESERVED), Mono.just(REJECTED),
-                Mono.just(RESERVED.expire()), Mono.just(RESERVED.confirm(NOW)));
+                Mono.just(RESERVED.expire(NOW)), Mono.just(RESERVED.confirm(NOW)));
 
         StepVerifier.create(useCase.run("o-1")).verifyComplete();
         StepVerifier.create(useCase.run("o-1")).verifyComplete();

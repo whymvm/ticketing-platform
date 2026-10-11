@@ -19,6 +19,7 @@ import co.com.ticketing.model.exception.ReservationExpiredException;
 import co.com.ticketing.model.order.OrderStatus;
 import co.com.ticketing.model.order.NewOrder;
 import co.com.ticketing.model.order.OrderDetails;
+import co.com.ticketing.model.order.OrderHistoryEntry;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectionReason;
 import co.com.ticketing.model.event.NewEvent;
@@ -29,6 +30,7 @@ import co.com.ticketing.usecase.watchavailability.WatchAvailabilityUseCase;
 import co.com.ticketing.usecase.confirmorder.ConfirmOrderUseCase;
 import co.com.ticketing.usecase.placeorder.PlaceOrderUseCase;
 import co.com.ticketing.usecase.retrieveorder.RetrieveOrderUseCase;
+import co.com.ticketing.usecase.retrieveorderhistory.RetrieveOrderHistoryUseCase;
 import co.com.ticketing.usecase.retrieveevent.RetrieveEventUseCase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -86,6 +88,9 @@ class RouterRestTest {
 
     @MockitoBean
     private ConfirmOrderUseCase confirmOrderUseCase;
+
+    @MockitoBean
+    private RetrieveOrderHistoryUseCase retrieveOrderHistoryUseCase;
 
     @Test
     void createEventReturns201WithLocationAndBody() {
@@ -335,7 +340,7 @@ class RouterRestTest {
     @Test
     void retrieveOrderReturns200WithTheFieldsOfItsState() {
         when(retrieveOrderUseCase.run("o-1", "c-1"))
-                .thenReturn(Mono.just(QUEUED_ORDER.reject(RejectionReason.SOLD_OUT)));
+                .thenReturn(Mono.just(QUEUED_ORDER.reject(RejectionReason.SOLD_OUT, Instant.parse("2026-10-10T12:05:00Z"))));
 
         webTestClient.get()
                 .uri("/api/v1/orders/o-1")
@@ -400,6 +405,42 @@ class RouterRestTest {
                 .expectBody()
                 .jsonPath("$.code").isEqualTo(expectedCode)
                 .jsonPath("$.detail").isEqualTo(error.getMessage());
+    }
+
+    @Test
+    void retrieveOrderHistoryReturnsTheTransitionsOldestFirst() {
+        var reserved = QUEUED_ORDER.reserve(Instant.parse("2026-10-10T12:00:01Z"), Duration.ofMinutes(10));
+        when(retrieveOrderHistoryUseCase.run("o-1", "c-1"))
+                .thenReturn(Flux.just(OrderHistoryEntry.of(QUEUED_ORDER), OrderHistoryEntry.of(reserved)));
+
+        webTestClient.get()
+                .uri("/api/v1/orders/o-1/history")
+                .header("X-Customer-Id", "c-1")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.orderId").isEqualTo("o-1")
+                .jsonPath("$.transitions.length()").isEqualTo(2)
+                .jsonPath("$.transitions[0].toStatus").isEqualTo("QUEUED")
+                .jsonPath("$.transitions[0].reason").isEqualTo("ORDER_PLACED")
+                .jsonPath("$.transitions[0].fromStatus").doesNotExist()
+                .jsonPath("$.transitions[0].occurredAt").isEqualTo("2026-10-10T12:00:00Z")
+                .jsonPath("$.transitions[1].fromStatus").isEqualTo("QUEUED")
+                .jsonPath("$.transitions[1].toStatus").isEqualTo("RESERVED")
+                .jsonPath("$.transitions[1].reason").isEqualTo("TICKETS_RESERVED");
+    }
+
+    @Test
+    void retrieveOrderHistoryReturns404WhenTheOrderIsNotFound() {
+        when(retrieveOrderHistoryUseCase.run("o-9", "local-customer"))
+                .thenReturn(Flux.error(new OrderNotFoundException("o-9")));
+
+        webTestClient.get()
+                .uri("/api/v1/orders/o-9/history")
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("ORDER_NOT_FOUND");
     }
 
     @Test

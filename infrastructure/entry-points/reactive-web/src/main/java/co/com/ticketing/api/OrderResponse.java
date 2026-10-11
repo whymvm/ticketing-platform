@@ -24,7 +24,8 @@ public record OrderResponse(String id,
                             OrderStatus status,
                             Instant expiresAt,
                             RejectionReason rejectionReason,
-                            Instant createdAt) {
+                            Instant createdAt,
+                            Instant updatedAt) {
 
     /**
      * Builds the response with the fields of the order state.
@@ -42,6 +43,6 @@ public record OrderResponse(String id,
     private static OrderResponse of(Order order, Instant expiresAt, RejectionReason rejectionReason) {
         OrderDetails details = order.details();
         return new OrderResponse(details.id(), details.eventId(), details.customerId(), details.quantity(),
-                order.status(), expiresAt, rejectionReason, details.createdAt());
+                order.status(), expiresAt, rejectionReason, details.createdAt(), order.updatedAt());
     }
 }

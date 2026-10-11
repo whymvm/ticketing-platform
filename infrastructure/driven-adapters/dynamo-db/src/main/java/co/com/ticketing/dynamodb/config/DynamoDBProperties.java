@@ -15,6 +15,6 @@ public record DynamoDBProperties(@NotBlank String region, String endpoint, @Vali
 
     public static final String PREFIX = "aws.dynamodb";
 
-    public record Tables(@NotBlank String events, @NotBlank String orders) {
+    public record Tables(@NotBlank String events, @NotBlank String orders, @NotBlank String orderHistory) {
     }
 }
