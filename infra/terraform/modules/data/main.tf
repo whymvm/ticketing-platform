@@ -60,3 +60,28 @@ resource "aws_dynamodb_table" "orders" {
     enabled = var.point_in_time_recovery
   }
 }
+
+# Append-only history of the order transitions. Each transition writes its entry in the same transaction as the
+# change. The sort key is "<instant with fixed width>#<new status>", so a query by order returns the entries in
+# time order.
+resource "aws_dynamodb_table" "order_history" {
+  name                        = "${var.name_prefix}order-history"
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "orderId"
+  range_key                   = "sk"
+  deletion_protection_enabled = var.deletion_protection
+
+  attribute {
+    name = "orderId"
+    type = "S"
+  }
+
+  attribute {
+    name = "sk"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = var.point_in_time_recovery
+  }
+}
