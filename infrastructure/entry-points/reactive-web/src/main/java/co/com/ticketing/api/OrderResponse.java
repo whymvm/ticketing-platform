@@ -1,5 +1,6 @@
 package co.com.ticketing.api;
 
+import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.OrderStatus;
@@ -32,6 +33,7 @@ public record OrderResponse(String id,
             case QueuedOrder queued -> of(queued, null, null);
             case ReservedOrder reserved -> of(reserved, reserved.expiresAt(), null);
             case RejectedOrder rejected -> of(rejected, null, rejected.rejectionReason());
+            case ExpiredOrder expired -> of(expired, null, null);
         };
     }
 

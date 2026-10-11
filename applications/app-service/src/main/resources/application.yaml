@@ -45,3 +45,5 @@ entrypoint:
     waitTimeSeconds: 20 # long polling
     maxNumberOfMessages: 10
     numberOfThreads: 1
+  scheduler:
+    expired-reservations-delay: ${EXPIRED_RESERVATIONS_DELAY:PT30S}

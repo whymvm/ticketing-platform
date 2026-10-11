@@ -2,8 +2,10 @@ package co.com.ticketing.dynamodb;
 
 import co.com.ticketing.dynamodb.config.DynamoDBProperties;
 import co.com.ticketing.model.exception.ConcurrencyConflictException;
+import co.com.ticketing.model.exception.InconsistentInventoryException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.exception.TicketsSoldOutException;
+import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.OrderStatus;
 import co.com.ticketing.model.order.ReservedOrder;
@@ -20,6 +22,7 @@ import software.amazon.awssdk.services.dynamodb.model.Update;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import static co.com.ticketing.dynamodb.DynamoDBExpressions.QUEUED_VALUE;
 import static co.com.ticketing.dynamodb.DynamoDBExpressions.STATUS_IS_QUEUED;
@@ -38,6 +41,8 @@ public class InventoryDynamoDBAdapter implements InventoryUpdater {
     private static final String CONDITIONAL_CHECK_FAILED = "ConditionalCheckFailed";
     private static final String TRANSACTION_CONFLICT = "TransactionConflict";
 
+    private static final Map<String, String> COUNTER_NAMES = Map.of("#available", "available", "#reserved", "reserved");
+
     private final DynamoDbAsyncClient client;
     private final DynamoDBProperties.Tables tables;
 
@@ -48,57 +53,100 @@ public class InventoryDynamoDBAdapter implements InventoryUpdater {
 
     @Override
     public Mono<ReservedOrder> reserveTickets(ReservedOrder order) {
-        return Mono.fromFuture(() -> client.transactWriteItems(reservation(order)))
-                .onErrorMap(TransactionCanceledException.class, error -> cancellationCause(error, order))
+        OrderDetails details = order.details();
+        return transaction(holdTickets(details), markReserved(order))
+                .onErrorMap(TransactionCanceledException.class, error -> cancellationCause(error, details,
+                        () -> new TicketsSoldOutException(details.eventId(), details.quantity())))
                 .thenReturn(order);
     }
 
-    private TransactWriteItemsRequest reservation(ReservedOrder order) {
-        return TransactWriteItemsRequest.builder()
-                .transactItems(holdTickets(order), markReserved(order))
-                .build();
+    @Override
+    public Mono<ExpiredOrder> releaseTickets(ExpiredOrder order) {
+        OrderDetails details = order.details();
+        return transaction(returnTickets(details), markExpired(order))
+                .onErrorMap(TransactionCanceledException.class, error -> cancellationCause(error, details,
+                        () -> new InconsistentInventoryException("event " + details.eventId()
+                                + " has fewer than " + details.quantity() + " reserved tickets")))
+                .thenReturn(order);
+    }
+
+    private Mono<Void> transaction(TransactWriteItem event, TransactWriteItem order) {
+        return Mono.fromFuture(() -> client.transactWriteItems(TransactWriteItemsRequest.builder()
+                        .transactItems(event, order)
+                        .build()))
+                .then();
     }
 
     // Partial update of the event: only its counters change, and only if there are enough tickets
-    private TransactWriteItem holdTickets(ReservedOrder order) {
-        OrderDetails details = order.details();
+    private TransactWriteItem holdTickets(OrderDetails details) {
+        return eventUpdate(details,
+                "SET #available = #available - :quantity, #reserved = #reserved + :quantity",
+                "#available >= :quantity");
+    }
+
+    // Partial update of the event: the tickets go back to available, and never below zero reserved tickets
+    private TransactWriteItem returnTickets(OrderDetails details) {
+        return eventUpdate(details,
+                "SET #available = #available + :quantity, #reserved = #reserved - :quantity",
+                "#reserved >= :quantity");
+    }
+
+    private TransactWriteItem eventUpdate(OrderDetails details, String updateExpression, String condition) {
         return TransactWriteItem.builder().update(Update.builder()
                         .tableName(tables.events())
                         .key(Map.of("id", AttributeValue.fromS(details.eventId())))
-                        .updateExpression("SET #available = #available - :quantity, #reserved = #reserved + :quantity")
-                        .conditionExpression("#available >= :quantity")
-                        .expressionAttributeNames(Map.of("#available", "available", "#reserved", "reserved"))
+                        .updateExpression(updateExpression)
+                        .conditionExpression(condition)
+                        .expressionAttributeNames(COUNTER_NAMES)
                         .expressionAttributeValues(Map.of(":quantity",
                                 AttributeValue.fromN(String.valueOf(details.quantity()))))
                         .build())
                 .build();
     }
 
-    // Partial update of the order: only its status and expiration change, and only if it is still queued
+    // Partial update of the order: its status and expiration change, and it enters the expiring orders index
     private TransactWriteItem markReserved(ReservedOrder order) {
+        String id = order.details().id();
         return TransactWriteItem.builder().update(Update.builder()
                         .tableName(tables.orders())
-                        .key(Map.of("id", AttributeValue.fromS(order.details().id())))
-                        .updateExpression("SET #status = :reserved, #expiresAt = :expiresAt")
+                        .key(Map.of("id", AttributeValue.fromS(id)))
+                        .updateExpression("SET #status = :reserved, #expiresAt = :expiresAt, #expiryShard = :expiryShard")
                         .conditionExpression(STATUS_IS_QUEUED)
-                        .expressionAttributeNames(Map.of(STATUS_NAME, "status", "#expiresAt", "expiresAt"))
+                        .expressionAttributeNames(Map.of(STATUS_NAME, "status", "#expiresAt", "expiresAt",
+                                "#expiryShard", "expiryShard"))
                         .expressionAttributeValues(Map.of(
                                 ":reserved", AttributeValue.fromS(OrderStatus.RESERVED.name()),
                                 QUEUED_VALUE, AttributeValue.fromS(OrderStatus.QUEUED.name()),
-                                ":expiresAt", AttributeValue.fromS(order.expiresAt().toString())))
+                                ":expiresAt", AttributeValue.fromS(order.expiresAt().toString()),
+                                ":expiryShard", AttributeValue.fromS(ExpiringOrdersIndex.shardOf(id))))
                         .build())
                 .build();
     }
 
-    // The order check goes first: if the order was already processed, the event stock does not matter
-    private static Throwable cancellationCause(TransactionCanceledException error, ReservedOrder order) {
+    // Partial update of the order: its status changes and it leaves the expiring orders index
+    private TransactWriteItem markExpired(ExpiredOrder order) {
+        return TransactWriteItem.builder().update(Update.builder()
+                        .tableName(tables.orders())
+                        .key(Map.of("id", AttributeValue.fromS(order.details().id())))
+                        .updateExpression("SET #status = :expired REMOVE #expiryShard")
+                        .conditionExpression("#status = :reserved")
+                        .expressionAttributeNames(Map.of(STATUS_NAME, "status", "#expiryShard", "expiryShard"))
+                        .expressionAttributeValues(Map.of(
+                                ":expired", AttributeValue.fromS(OrderStatus.EXPIRED.name()),
+                                ":reserved", AttributeValue.fromS(OrderStatus.RESERVED.name())))
+                        .build())
+                .build();
+    }
+
+    // The order check goes first: if the order was already processed, the event counters do not matter
+    private static Throwable cancellationCause(TransactionCanceledException error, OrderDetails details,
+                                               Supplier<RuntimeException> eventConditionFailed) {
         List<String> codes = error.cancellationReasons().stream().map(CancellationReason::code).toList();
-        OrderDetails details = order.details();
         if (hasCode(codes, ORDER_ITEM, CONDITIONAL_CHECK_FAILED)) {
             return new OrderAlreadyProcessedException(details.id());
         }
         if (hasCode(codes, EVENT_ITEM, CONDITIONAL_CHECK_FAILED)) {
-            return new TicketsSoldOutException(details.eventId(), details.quantity());
+            return eventConditionFailed.get();
         }
         if (codes.contains(TRANSACTION_CONFLICT)) {
             return new ConcurrencyConflictException(details.id());

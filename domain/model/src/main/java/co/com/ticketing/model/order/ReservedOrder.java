@@ -19,4 +19,18 @@ public record ReservedOrder(OrderDetails details, Instant expiresAt) implements 
     public OrderStatus status() {
         return OrderStatus.RESERVED;
     }
+
+    /**
+     * Tells if the reservation time is over at the given instant.
+     */
+    public boolean isExpiredAt(Instant now) {
+        return !now.isBefore(expiresAt);
+    }
+
+    /**
+     * Expires the reservation, so its tickets go back to the inventory.
+     */
+    public ExpiredOrder expire() {
+        return new ExpiredOrder(details);
+    }
 }

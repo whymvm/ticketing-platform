@@ -2,8 +2,10 @@ package co.com.ticketing.dynamodb;
 
 import co.com.ticketing.dynamodb.config.DynamoDBProperties;
 import co.com.ticketing.model.exception.ConcurrencyConflictException;
+import co.com.ticketing.model.exception.InconsistentInventoryException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.exception.TicketsSoldOutException;
+import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.ReservedOrder;
@@ -74,12 +76,62 @@ class InventoryDynamoDBAdapterTest {
         Update order = captor.getValue().transactItems().get(1).update();
         assertThat(order.tableName()).isEqualTo("local-ticketing-orders");
         assertThat(order.key()).containsEntry("id", AttributeValue.fromS("o-1"));
-        assertThat(order.updateExpression()).isEqualTo("SET #status = :reserved, #expiresAt = :expiresAt");
+        assertThat(order.updateExpression())
+                .isEqualTo("SET #status = :reserved, #expiresAt = :expiresAt, #expiryShard = :expiryShard");
         assertThat(order.conditionExpression()).isEqualTo("#status = :queued");
         assertThat(order.expressionAttributeValues())
                 .containsEntry(":reserved", AttributeValue.fromS("RESERVED"))
                 .containsEntry(":queued", AttributeValue.fromS("QUEUED"))
-                .containsEntry(":expiresAt", AttributeValue.fromS("2026-10-10T12:10:00Z"));
+                .containsEntry(":expiresAt", AttributeValue.fromS("2026-10-10T12:10:00Z"))
+                .containsEntry(":expiryShard", AttributeValue.fromS(ExpiringOrdersIndex.shardOf("o-1")));
+    }
+
+    @Test
+    void releaseTicketsReturnsTheTicketsAndMarksTheOrderInOneTransaction() {
+        ExpiredOrder expired = ORDER.expire();
+        when(client.transactWriteItems(any(TransactWriteItemsRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(TransactWriteItemsResponse.builder().build()));
+
+        StepVerifier.create(adapter.releaseTickets(expired))
+                .expectNext(expired)
+                .verifyComplete();
+
+        ArgumentCaptor<TransactWriteItemsRequest> captor = ArgumentCaptor.forClass(TransactWriteItemsRequest.class);
+        verify(client).transactWriteItems(captor.capture());
+
+        Update event = captor.getValue().transactItems().get(0).update();
+        assertThat(event.key()).containsEntry("id", AttributeValue.fromS("e-1"));
+        assertThat(event.updateExpression())
+                .isEqualTo("SET #available = #available + :quantity, #reserved = #reserved - :quantity");
+        assertThat(event.conditionExpression()).isEqualTo("#reserved >= :quantity");
+
+        Update order = captor.getValue().transactItems().get(1).update();
+        assertThat(order.key()).containsEntry("id", AttributeValue.fromS("o-1"));
+        assertThat(order.updateExpression()).isEqualTo("SET #status = :expired REMOVE #expiryShard");
+        assertThat(order.conditionExpression()).isEqualTo("#status = :reserved");
+        assertThat(order.expressionAttributeValues())
+                .containsEntry(":expired", AttributeValue.fromS("EXPIRED"))
+                .containsEntry(":reserved", AttributeValue.fromS("RESERVED"));
+    }
+
+    @Test
+    void releaseTicketsFailsWithOrderAlreadyProcessedWhenTheOrderIsNoLongerReserved() {
+        cancelWith("None", "ConditionalCheckFailed");
+
+        StepVerifier.create(adapter.releaseTickets(ORDER.expire()))
+                .expectError(OrderAlreadyProcessedException.class)
+                .verify();
+    }
+
+    @Test
+    void releaseTicketsFailsWithInconsistentInventoryWhenTheEventHasTooFewReservedTickets() {
+        cancelWith("ConditionalCheckFailed", "None");
+
+        StepVerifier.create(adapter.releaseTickets(ORDER.expire()))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(InconsistentInventoryException.class)
+                        .hasMessage("inconsistent inventory: event e-1 has fewer than 2 reserved tickets"))
+                .verify();
     }
 
     @Test

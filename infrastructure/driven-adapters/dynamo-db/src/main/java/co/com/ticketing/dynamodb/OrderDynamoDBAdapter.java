@@ -7,21 +7,27 @@ import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.OrderStatus;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectedOrder;
+import co.com.ticketing.model.order.ReservedOrder;
 import co.com.ticketing.model.order.gateways.OrderCreator;
 import co.com.ticketing.model.order.gateways.OrderRetriever;
 import co.com.ticketing.model.order.gateways.OrderStatusUpdater;
 import org.springframework.stereotype.Repository;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncIndex;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
+import software.amazon.awssdk.enhanced.dynamodb.model.Page;
+import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
 import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
 
+import java.time.Instant;
 import java.util.Map;
 
 import static co.com.ticketing.dynamodb.DynamoDBExpressions.QUEUED_VALUE;
@@ -35,6 +41,7 @@ import static co.com.ticketing.dynamodb.DynamoDBExpressions.STATUS_NAME;
 public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, OrderStatusUpdater {
 
     private final DynamoDbAsyncTable<OrderEntity> table;
+    private final DynamoDbAsyncIndex<OrderEntity> expiringOrders;
     private final DynamoDbAsyncClient client;
     private final String tableName;
 
@@ -42,6 +49,7 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
                                 DynamoDBProperties properties) {
         this.tableName = properties.tables().orders();
         this.table = enhancedClient.table(tableName, TableSchema.fromBean(OrderEntity.class));
+        this.expiringOrders = table.index(ExpiringOrdersIndex.NAME);
         this.client = client;
     }
 
@@ -56,6 +64,18 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
     public Mono<Order> findById(String id) {
         return Mono.fromFuture(() -> table.getItem(Key.builder().partitionValue(id).build()))
                 .map(OrderEntity::toDomain);
+    }
+
+    // Reads every shard of the sparse index in parallel. Expiration instants are stored as ISO-8601 text, so they
+    // compare in time order with a margin of less than one second; the use case checks the exact instant
+    @Override
+    public Flux<ReservedOrder> findExpiredReservations(Instant now) {
+        return Flux.fromIterable(ExpiringOrdersIndex.shards())
+                .flatMap(shard -> Flux.from(expiringOrders.query(QueryConditional.sortLessThanOrEqualTo(
+                        Key.builder().partitionValue(shard).sortValue(now.toString()).build()))))
+                .flatMapIterable(Page::items)
+                .map(OrderEntity::toDomain)
+                .ofType(ReservedOrder.class);
     }
 
     @Override
