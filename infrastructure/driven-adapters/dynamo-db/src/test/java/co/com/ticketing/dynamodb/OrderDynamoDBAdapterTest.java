@@ -4,6 +4,7 @@ import co.com.ticketing.dynamodb.config.DynamoDBProperties;
 import co.com.ticketing.model.exception.OrderAlreadyExistsException;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.QueuedOrder;
+import co.com.ticketing.model.order.RejectionReason;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,10 +16,12 @@ import reactor.test.StepVerifier;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
 import software.amazon.awssdk.enhanced.dynamodb.Expression;
+import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -67,6 +70,8 @@ class OrderDynamoDBAdapterTest {
         assertThat(saved.getCustomerId()).isEqualTo("c-1");
         assertThat(saved.getQuantity()).isEqualTo(2);
         assertThat(saved.getStatus()).isEqualTo("QUEUED");
+        assertThat(saved.getExpiresAt()).isNull();
+        assertThat(saved.getRejectionReason()).isNull();
         assertThat(saved.getCreatedAt()).isEqualTo(CREATED_AT);
     }
 
@@ -109,6 +114,47 @@ class OrderDynamoDBAdapterTest {
 
         verifyNoInteractions(table);
         assertThat(pending).isNotNull();
+    }
+
+    @Test
+    void findByIdRebuildsAQueuedOrder() {
+        when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(OrderEntity.from(ORDER)));
+
+        StepVerifier.create(adapter.findById("o-1"))
+                .expectNext(ORDER)
+                .verifyComplete();
+    }
+
+    @Test
+    void findByIdRebuildsAReservedOrder() {
+        Instant expiresAt = CREATED_AT.plus(Duration.ofMinutes(10));
+        OrderEntity entity = OrderEntity.from(ORDER);
+        entity.setStatus("RESERVED");
+        entity.setExpiresAt(expiresAt);
+        when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(entity));
+
+        StepVerifier.create(adapter.findById("o-1"))
+                .expectNext(ORDER.reserve(CREATED_AT, Duration.ofMinutes(10)))
+                .verifyComplete();
+    }
+
+    @Test
+    void findByIdRebuildsARejectedOrder() {
+        OrderEntity entity = OrderEntity.from(ORDER);
+        entity.setStatus("REJECTED");
+        entity.setRejectionReason("SOLD_OUT");
+        when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(entity));
+
+        StepVerifier.create(adapter.findById("o-1"))
+                .expectNext(ORDER.reject(RejectionReason.SOLD_OUT))
+                .verifyComplete();
+    }
+
+    @Test
+    void findByIdIsEmptyWhenTheOrderDoesNotExist() {
+        when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(null));
+
+        StepVerifier.create(adapter.findById("missing")).verifyComplete();
     }
 
     @SuppressWarnings("unchecked")

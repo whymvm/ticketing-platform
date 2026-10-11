@@ -31,6 +31,12 @@ public class RouterRest {
                     beanClass = OrderHandler.class,
                     beanMethod = "placeOrder",
                     method = RequestMethod.POST
+            ),
+            @RouterOperation(
+                    path = ApiPaths.ORDER_BY_ID,
+                    beanClass = OrderHandler.class,
+                    beanMethod = "retrieveOrder",
+                    method = RequestMethod.GET
             )
     })
     @Bean
@@ -41,6 +47,7 @@ public class RouterRest {
                 .POST(ApiPaths.EVENTS, eventHandler::createEvent)
                 .GET(ApiPaths.EVENT_BY_ID, eventHandler::retrieveEvent)
                 .POST(ApiPaths.ORDERS, orderHandler::placeOrder)
+                .GET(ApiPaths.ORDER_BY_ID, orderHandler::retrieveOrder)
                 .onError(Throwable.class, errorHandler::handle)
                 .build();
     }

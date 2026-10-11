@@ -1,7 +1,12 @@
 package co.com.ticketing.dynamodb;
 
+import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.OrderDetails;
+import co.com.ticketing.model.order.OrderStatus;
 import co.com.ticketing.model.order.QueuedOrder;
+import co.com.ticketing.model.order.RejectedOrder;
+import co.com.ticketing.model.order.RejectionReason;
+import co.com.ticketing.model.order.ReservedOrder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -25,6 +30,8 @@ public class OrderEntity {
     private String customerId;
     private Integer quantity;
     private String status;
+    private Instant expiresAt;
+    private String rejectionReason;
     private Instant createdAt;
 
     /**
@@ -40,5 +47,17 @@ public class OrderEntity {
         entity.setStatus(order.status().name());
         entity.setCreatedAt(details.createdAt());
         return entity;
+    }
+
+    /**
+     * Rebuilds the order in the state stored in the item.
+     */
+    public Order toDomain() {
+        OrderDetails details = new OrderDetails(id, eventId, customerId, quantity, createdAt);
+        return switch (OrderStatus.valueOf(status)) {
+            case QUEUED -> new QueuedOrder(details);
+            case RESERVED -> new ReservedOrder(details, expiresAt);
+            case REJECTED -> new RejectedOrder(details, RejectionReason.valueOf(rejectionReason));
+        };
     }
 }

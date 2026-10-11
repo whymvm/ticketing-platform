@@ -2,21 +2,24 @@ package co.com.ticketing.dynamodb;
 
 import co.com.ticketing.dynamodb.config.DynamoDBProperties;
 import co.com.ticketing.model.exception.OrderAlreadyExistsException;
+import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.gateways.OrderCreator;
+import co.com.ticketing.model.order.gateways.OrderRetriever;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
+import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 /**
- * Stores orders in DynamoDB.
+ * Stores and retrieves orders in DynamoDB.
  */
 @Repository
-public class OrderDynamoDBAdapter implements OrderCreator {
+public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever {
 
     private final DynamoDbAsyncTable<OrderEntity> table;
 
@@ -29,6 +32,12 @@ public class OrderDynamoDBAdapter implements OrderCreator {
         return Mono.fromFuture(() -> table.putItem(newItemRequest(order)))
                 .onErrorMap(ConditionalCheckFailedException.class, e -> new OrderAlreadyExistsException(order.details().id()))
                 .thenReturn(order);
+    }
+
+    @Override
+    public Mono<Order> findById(String id) {
+        return Mono.fromFuture(() -> table.getItem(Key.builder().partitionValue(id).build()))
+                .map(OrderEntity::toDomain);
     }
 
     private static PutItemEnhancedRequest<OrderEntity> newItemRequest(QueuedOrder order) {

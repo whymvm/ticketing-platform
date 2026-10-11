@@ -3,6 +3,7 @@ package co.com.ticketing.api;
 import co.com.ticketing.model.order.NewOrder;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.usecase.placeorder.PlaceOrderUseCase;
+import co.com.ticketing.usecase.retrieveorder.RetrieveOrderUseCase;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -19,6 +20,7 @@ import java.util.Optional;
 public class OrderHandler {
 
     private final PlaceOrderUseCase placeOrderUseCase;
+    private final RetrieveOrderUseCase retrieveOrderUseCase;
 
     /**
      * Places an order and answers 202 Accepted: its tickets are reserved later, asynchronously.
@@ -29,6 +31,16 @@ public class OrderHandler {
                 .flatMap(newOrder -> placeOrderUseCase.run(newOrder, customerId(request)))
                 .flatMap(order -> ServerResponse.accepted()
                         .location(locationOf(order))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(OrderResponse.from(order)));
+    }
+
+    /**
+     * Returns the current state of an order of the customer.
+     */
+    public Mono<ServerResponse> retrieveOrder(ServerRequest request) {
+        return retrieveOrderUseCase.run(request.pathVariable(ApiPaths.ORDER_ID), customerId(request))
+                .flatMap(order -> ServerResponse.ok()
                         .contentType(MediaType.APPLICATION_JSON)
                         .bodyValue(OrderResponse.from(order)));
     }

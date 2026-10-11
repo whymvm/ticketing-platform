@@ -9,6 +9,7 @@ import co.com.ticketing.model.exception.InvalidEventScheduleException;
 import co.com.ticketing.model.exception.InvalidEventVenueException;
 import co.com.ticketing.model.exception.InvalidOrderEventException;
 import co.com.ticketing.model.exception.InvalidOrderQuantityException;
+import co.com.ticketing.model.exception.OrderNotFoundException;
 import lombok.extern.java.Log;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -44,6 +45,7 @@ public class ErrorHandler {
             case InvalidOrderQuantityException e -> problem(ErrorCode.INVALID_ORDER_QUANTITY, e.getMessage(), request);
             case InvalidOrderEventException e -> problem(ErrorCode.INVALID_ORDER_EVENT, e.getMessage(), request);
             case InvalidCustomerException e -> problem(ErrorCode.INVALID_CUSTOMER, e.getMessage(), request);
+            case OrderNotFoundException e -> problem(ErrorCode.ORDER_NOT_FOUND, e.getMessage(), request);
             case MissingRequestBodyException e -> problem(ErrorCode.MISSING_REQUEST_BODY, e.getMessage(), request);
             case ServerWebInputException _ -> problem(ErrorCode.MALFORMED_REQUEST_BODY, null, request);
             // Keeps the status code of framework errors
