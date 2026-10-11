@@ -2,6 +2,7 @@ package co.com.ticketing.usecase.releaseexpiredreservations;
 
 import co.com.ticketing.model.exception.ConcurrencyConflictException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
+import co.com.ticketing.model.order.ComplimentaryOrder;
 import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.SoldOrder;
 import co.com.ticketing.model.order.ReservedOrder;
@@ -47,7 +48,7 @@ public class ReleaseExpiredReservationsUseCase {
             case ReservedOrder reserved when reserved.isExpiredAt(now) -> release(reserved.expire(now));
             case PendingConfirmationOrder pending when pending.isExpiredAt(now) -> release(pending.expire(now));
             case QueuedOrder _, ReservedOrder _, PendingConfirmationOrder _, SoldOrder _, RejectedOrder _,
-                 ExpiredOrder _ -> Mono.empty();
+                 ExpiredOrder _, ComplimentaryOrder _ -> Mono.empty();
         };
     }
 

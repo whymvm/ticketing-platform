@@ -5,6 +5,8 @@ import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.exception.OrderNotFoundException;
 import co.com.ticketing.model.exception.OrderNotReservedException;
 import co.com.ticketing.model.exception.ReservationExpiredException;
+import co.com.ticketing.model.order.ComplimentaryOrder;
+import co.com.ticketing.model.order.NewComplimentary;
 import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.PendingConfirmationOrder;
@@ -86,7 +88,8 @@ class ConfirmOrderUseCaseTest {
     }
 
     static Stream<Order> ordersThatAreNotReserved() {
-        return Stream.of(QUEUED, QUEUED.reject(RejectionReason.SOLD_OUT, NOW), RESERVED.expire(NOW));
+        return Stream.of(QUEUED, QUEUED.reject(RejectionReason.SOLD_OUT, NOW), RESERVED.expire(NOW),
+                ComplimentaryOrder.issue("o-1", "e-1", new NewComplimentary("c-1", 2), NOW));
     }
 
     @ParameterizedTest

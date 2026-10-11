@@ -6,6 +6,7 @@ import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.exception.OrderNotFoundException;
 import co.com.ticketing.model.exception.TicketsSoldOutException;
+import co.com.ticketing.model.order.ComplimentaryOrder;
 import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.PendingConfirmationOrder;
@@ -51,7 +52,8 @@ public class ReserveTicketsUseCase {
     private Mono<Void> process(Order order) {
         return switch (order) {
             case QueuedOrder queued -> reserve(queued);
-            case ReservedOrder _, PendingConfirmationOrder _, RejectedOrder _, ExpiredOrder _, SoldOrder _ ->
+            case ReservedOrder _, PendingConfirmationOrder _, RejectedOrder _, ExpiredOrder _, SoldOrder _,
+                 ComplimentaryOrder _ ->
                     Mono.empty();
         };
     }

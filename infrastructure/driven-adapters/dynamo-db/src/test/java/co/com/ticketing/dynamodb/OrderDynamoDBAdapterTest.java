@@ -4,6 +4,8 @@ import co.com.ticketing.dynamodb.config.DynamoDBProperties;
 import co.com.ticketing.model.exception.DuplicateRequestException;
 import co.com.ticketing.model.exception.OrderAlreadyExistsException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
+import co.com.ticketing.model.order.ComplimentaryOrder;
+import co.com.ticketing.model.order.NewComplimentary;
 import co.com.ticketing.model.order.IdempotencyKey;
 import co.com.ticketing.model.order.IdempotencyRecord;
 import co.com.ticketing.model.order.OrderDetails;
@@ -196,6 +198,18 @@ class OrderDynamoDBAdapterTest {
         GetItemEnhancedRequest request = capturedGetItemRequest();
         assertThat(request.consistentRead()).isTrue();
         assertThat(request.key().partitionKeyValue()).isEqualTo(AttributeValue.fromS("o-1"));
+    }
+
+    @Test
+    void findByIdRebuildsAComplimentaryOrder() {
+        ComplimentaryOrder complimentary = ComplimentaryOrder.issue("o-1", "e-1",
+                new NewComplimentary("guest-001", 2), CREATED_AT);
+        when(table.getItem(anyGetItemRequest()))
+                .thenReturn(CompletableFuture.completedFuture(OrderEntity.from(complimentary)));
+
+        StepVerifier.create(adapter.findById("o-1"))
+                .expectNext(complimentary)
+                .verifyComplete();
     }
 
     @Test

@@ -4,6 +4,7 @@ import co.com.ticketing.model.exception.ConcurrencyConflictException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.exception.OrderNotFoundException;
 import co.com.ticketing.model.exception.OrderNotReservedException;
+import co.com.ticketing.model.order.ComplimentaryOrder;
 import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.PendingConfirmationOrder;
@@ -40,7 +41,7 @@ public class ConfirmOrderUseCase {
         return findOrder(id, customerId).flatMap(order -> switch (order) {
             case ReservedOrder reserved -> confirm(reserved);
             case PendingConfirmationOrder _, SoldOrder _ -> Mono.just(order);
-            case QueuedOrder _, RejectedOrder _, ExpiredOrder _ ->
+            case QueuedOrder _, RejectedOrder _, ExpiredOrder _, ComplimentaryOrder _ ->
                     Mono.error(new OrderNotReservedException(id, order.status()));
         });
     }
@@ -73,7 +74,7 @@ public class ConfirmOrderUseCase {
         return orderRetriever.findById(id).flatMap(order -> switch (order) {
             case PendingConfirmationOrder _, SoldOrder _ -> Mono.just(order);
             case ReservedOrder _ -> Mono.error(new ConcurrencyConflictException(id));
-            case QueuedOrder _, RejectedOrder _, ExpiredOrder _ ->
+            case QueuedOrder _, RejectedOrder _, ExpiredOrder _, ComplimentaryOrder _ ->
                     Mono.error(new OrderNotReservedException(id, order.status()));
         });
     }

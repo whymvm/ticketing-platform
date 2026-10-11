@@ -30,6 +30,8 @@ public record OrderHistoryEntry(String orderId,
             case PendingConfirmationOrder pending ->
                     entry(pending, OrderStatus.RESERVED, TransitionReason.ORDER_CONFIRMED);
             case SoldOrder sold -> entry(sold, OrderStatus.PENDING_CONFIRMATION, TransitionReason.PAYMENT_APPROVED);
+            case ComplimentaryOrder complimentary ->
+                    entry(complimentary, null, TransitionReason.COMPLIMENTARY_ISSUED);
             case RejectedOrder rejected -> rejection(rejected);
             case ExpiredOrder expired -> expiration(expired);
         };

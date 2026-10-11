@@ -2,10 +2,16 @@ package co.com.ticketing.dynamodb;
 
 import co.com.ticketing.dynamodb.config.DynamoDBProperties;
 import co.com.ticketing.model.exception.ConcurrencyConflictException;
+import co.com.ticketing.model.exception.DuplicateRequestException;
 import co.com.ticketing.model.exception.InconsistentInventoryException;
+import co.com.ticketing.model.exception.OrderAlreadyExistsException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.exception.TicketsSoldOutException;
+import co.com.ticketing.model.order.ComplimentaryOrder;
 import co.com.ticketing.model.order.ExpiredOrder;
+import co.com.ticketing.model.order.IdempotencyKey;
+import co.com.ticketing.model.order.IdempotencyRecord;
+import co.com.ticketing.model.order.NewComplimentary;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.PendingConfirmationOrder;
 import co.com.ticketing.model.order.QueuedOrder;
@@ -15,6 +21,9 @@ import co.com.ticketing.model.order.SoldOrder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -32,6 +41,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -47,6 +57,10 @@ class InventoryDynamoDBAdapterTest {
     private static final ReservedOrder RESERVED = new QueuedOrder(new OrderDetails("o-1", "e-1", "c-1", 2, NOW))
             .reserve(NOW, Duration.ofMinutes(10));
     private static final PendingConfirmationOrder PENDING = RESERVED.confirm(CONFIRMED_AT);
+    private static final ComplimentaryOrder COMPLIMENTARY = ComplimentaryOrder.issue("o-1", "e-1",
+            new NewComplimentary("guest-001", 2), NOW);
+    private static final IdempotencyRecord COMPLIMENTARY_RECORD =
+            IdempotencyRecord.of(new IdempotencyKey("organizer", "comp-0001"), COMPLIMENTARY);
 
     @Mock
     private DynamoDbAsyncClient client;
@@ -224,6 +238,61 @@ class InventoryDynamoDBAdapterTest {
 
         StepVerifier.create(adapter.reserveTickets(RESERVED))
                 .expectError(TransactionCanceledException.class)
+                .verify();
+    }
+
+    @Test
+    void issueWritesTheTicketsTheOrderItsHistoryAndTheKeyInOneTransaction() {
+        allowTransactions();
+
+        StepVerifier.create(adapter.issue(COMPLIMENTARY, COMPLIMENTARY_RECORD)).expectNext(COMPLIMENTARY).verifyComplete();
+
+        TransactWriteItemsRequest request = capturedTransaction();
+        assertThat(request.transactItems()).hasSize(4);
+        assertTicketsMove(request.transactItems().get(0).update(), "available", "complimentary");
+
+        Put order = request.transactItems().get(1).put();
+        assertThat(order.tableName()).isEqualTo("local-ticketing-orders");
+        assertThat(order.conditionExpression()).isEqualTo(DynamoDBExpressions.ID_NOT_EXISTS.expression());
+        assertThat(order.item())
+                .containsEntry("id", AttributeValue.fromS("o-1"))
+                .containsEntry("customerId", AttributeValue.fromS("guest-001"))
+                .containsEntry("status", AttributeValue.fromS("COMPLIMENTARY"))
+                .doesNotContainKey("expiryShard");
+
+        Put history = request.transactItems().get(2).put();
+        assertThat(history.tableName()).isEqualTo("local-ticketing-order-history");
+        assertThat(history.item())
+                .containsEntry("toStatus", AttributeValue.fromS("COMPLIMENTARY"))
+                .containsEntry("reason", AttributeValue.fromS("COMPLIMENTARY_ISSUED"))
+                .doesNotContainKey("fromStatus");
+
+        Put key = request.transactItems().get(3).put();
+        assertThat(key.tableName()).isEqualTo("local-ticketing-idempotency");
+        assertThat(key.item()).containsEntry("idempotencyKey", AttributeValue.fromS("organizer#comp-0001"));
+    }
+
+    static Stream<Arguments> issueCancellations() {
+        return Stream.of(
+                Arguments.of(new String[]{"None", "None", "None", "ConditionalCheckFailed"},
+                        DuplicateRequestException.class),
+                Arguments.of(new String[]{"ConditionalCheckFailed", "None", "None", "None"},
+                        TicketsSoldOutException.class),
+                Arguments.of(new String[]{"None", "ConditionalCheckFailed", "None", "None"},
+                        OrderAlreadyExistsException.class),
+                Arguments.of(new String[]{"TransactionConflict", "None", "None", "None"},
+                        ConcurrencyConflictException.class),
+                Arguments.of(new String[]{}, TransactionCanceledException.class));
+    }
+
+    // The key goes first: a retry of the same request must be answered with the first order, even if sold out now
+    @ParameterizedTest
+    @MethodSource("issueCancellations")
+    void issueTranslatesEachCancellationReason(String[] codes, Class<? extends Throwable> expected) {
+        cancelWith(codes);
+
+        StepVerifier.create(adapter.issue(COMPLIMENTARY, COMPLIMENTARY_RECORD))
+                .expectError(expected)
                 .verify();
     }
 

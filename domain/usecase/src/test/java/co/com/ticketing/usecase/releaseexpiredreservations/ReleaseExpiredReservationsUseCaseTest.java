@@ -2,6 +2,8 @@ package co.com.ticketing.usecase.releaseexpiredreservations;
 
 import co.com.ticketing.model.exception.ConcurrencyConflictException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
+import co.com.ticketing.model.order.ComplimentaryOrder;
+import co.com.ticketing.model.order.NewComplimentary;
 import co.com.ticketing.model.order.ExpirationReason;
 import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.OrderDetails;
@@ -81,6 +83,16 @@ class ReleaseExpiredReservationsUseCaseTest {
         PendingConfirmationOrder pending = reserved("o-9", NOW.minus(Duration.ofMinutes(3)))
                 .confirm(NOW.minus(Duration.ofMinutes(2)));
         when(orderRetriever.findOrdersPastDeadline(NOW)).thenReturn(Flux.just(pending));
+
+        StepVerifier.create(useCase.run()).verifyComplete();
+
+        verifyNoInteractions(inventoryUpdater);
+    }
+
+    @Test
+    void skipsComplimentaryTicketsBecauseTheyNeverExpire() {
+        when(orderRetriever.findOrdersPastDeadline(NOW)).thenReturn(Flux.just(
+                ComplimentaryOrder.issue("o-3", "e-1", new NewComplimentary("guest-001", 2), NOW.minus(Duration.ofDays(1)))));
 
         StepVerifier.create(useCase.run()).verifyComplete();
 

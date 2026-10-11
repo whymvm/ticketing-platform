@@ -15,15 +15,16 @@ public record IdempotencyRecord(String key, String requestFingerprint, String or
     public static final Duration LIFETIME = Duration.ofHours(24);
 
     /**
-     * Records that the key created the order.
+     * Records that the key created the new order: a queued purchase or a complimentary order.
      */
-    public static IdempotencyRecord of(IdempotencyKey key, QueuedOrder order) {
+    public static IdempotencyRecord of(IdempotencyKey key, Order order) {
         OrderDetails details = order.details();
-        return new IdempotencyRecord(key.scoped(), fingerprintOf(details), details.id(), details.createdAt());
+        return new IdempotencyRecord(key.scoped(), fingerprintOf(details, order.status()), details.id(),
+                details.createdAt());
     }
 
     /**
-     * Tells if both records come from the same request: same customer, event and quantity.
+     * Tells if both records come from the same request: same kind of order, customer, event and quantity.
      */
     public boolean sameRequestAs(IdempotencyRecord other) {
         return requestFingerprint.equals(other.requestFingerprint);
@@ -37,8 +38,10 @@ public record IdempotencyRecord(String key, String requestFingerprint, String or
         return !now.isBefore(expiresAt());
     }
 
-    private static String fingerprintOf(OrderDetails details) {
-        String request = details.eventId() + "|" + details.customerId() + "|" + details.quantity();
+    // The status of a new order tells a purchase (QUEUED) from a complimentary one, so a key of one never replays
+    // an order of the other, even if a customer declares the same id as the organizer
+    private static String fingerprintOf(OrderDetails details, OrderStatus newStatus) {
+        String request = details.eventId() + "|" + details.customerId() + "|" + details.quantity() + "|" + newStatus;
         return HexFormat.of().formatHex(sha256(request.getBytes(StandardCharsets.UTF_8)));
     }
 

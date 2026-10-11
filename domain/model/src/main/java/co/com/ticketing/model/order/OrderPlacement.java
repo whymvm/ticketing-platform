@@ -5,7 +5,7 @@ package co.com.ticketing.model.order;
  */
 public record OrderPlacement(Order order, boolean replayed) {
 
-    public static OrderPlacement created(QueuedOrder order) {
+    public static OrderPlacement created(Order order) {
         return new OrderPlacement(order, false);
     }
 

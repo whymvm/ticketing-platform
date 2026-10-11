@@ -1,6 +1,7 @@
 package co.com.ticketing.api;
 
 import co.com.ticketing.model.event.TicketStatus;
+import co.com.ticketing.model.order.ComplimentaryOrder;
 import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.OrderDetails;
@@ -42,6 +43,7 @@ public record OrderResponse(String id,
             case RejectedOrder rejected -> of(rejected, null, rejected.rejectionReason());
             case ExpiredOrder expired -> of(expired, null, null);
             case SoldOrder sold -> of(sold, null, null);
+            case ComplimentaryOrder complimentary -> of(complimentary, null, null);
         };
     }
 

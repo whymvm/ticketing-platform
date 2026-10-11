@@ -13,7 +13,8 @@ public enum OrderStatus {
     PENDING_CONFIRMATION,
     SOLD,
     REJECTED,
-    EXPIRED;
+    EXPIRED,
+    COMPLIMENTARY;
 
     /**
      * State of the tickets of an order in this state (ADR 0001). A queued order has no tickets yet; a rejected or
@@ -26,6 +27,7 @@ public enum OrderStatus {
             case PENDING_CONFIRMATION -> Optional.of(TicketStatus.PENDING_CONFIRMATION);
             case SOLD -> Optional.of(TicketStatus.SOLD);
             case REJECTED, EXPIRED -> Optional.of(TicketStatus.AVAILABLE);
+            case COMPLIMENTARY -> Optional.of(TicketStatus.COMPLIMENTARY);
         };
     }
 }

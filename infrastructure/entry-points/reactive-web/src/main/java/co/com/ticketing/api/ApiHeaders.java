@@ -13,6 +13,9 @@ public final class ApiHeaders {
     public static final String IDEMPOTENCY_KEY = "Idempotency-Key";
     public static final String IDEMPOTENT_REPLAYED = "Idempotent-Replayed";
 
+    // Shared key of the administrative operations, such as issuing complimentary tickets
+    public static final String ADMIN_KEY = "X-Admin-Key";
+
     // Seconds the client should wait before checking a queued order again
     public static final String RETRY_AFTER_SECONDS = "1";
 

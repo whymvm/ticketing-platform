@@ -84,6 +84,18 @@ class IdempotencyTest {
     }
 
     @Test
+    void aPurchaseAndAComplimentaryOrderWithTheSameDataAreDifferentRequests() {
+        IdempotencyKey organizerKey = new IdempotencyKey("organizer", "key-0001");
+        IdempotencyRecord purchase = IdempotencyRecord.of(organizerKey,
+                QueuedOrder.create("o-1", new NewOrder("e-1", 2), "organizer", NOW));
+        IdempotencyRecord complimentary = IdempotencyRecord.of(organizerKey,
+                ComplimentaryOrder.issue("o-2", "e-1", new NewComplimentary("organizer", 2), NOW));
+
+        assertThat(purchase.key()).isEqualTo(complimentary.key());
+        assertThat(purchase.sameRequestAs(complimentary)).isFalse();
+    }
+
+    @Test
     void aPlacementTellsIfItWasReplayed() {
         QueuedOrder order = QueuedOrder.create("o-1", new NewOrder("e-1", 2), "c-1", NOW);
 
