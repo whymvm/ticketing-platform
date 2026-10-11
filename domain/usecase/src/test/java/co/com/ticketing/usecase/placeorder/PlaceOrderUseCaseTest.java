@@ -3,6 +3,7 @@ package co.com.ticketing.usecase.placeorder;
 import co.com.ticketing.model.event.Event;
 import co.com.ticketing.model.event.Inventory;
 import co.com.ticketing.model.event.gateways.EventRetriever;
+import co.com.ticketing.model.exception.EventClosedException;
 import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.exception.InvalidOrderQuantityException;
 import co.com.ticketing.model.order.NewOrder;
@@ -99,6 +100,32 @@ class PlaceOrderUseCaseTest {
                 .verify();
 
         verifyNoInteractions(orderCreator, orderPublisher);
+    }
+
+    @Test
+    void emitsEventClosedAndDoesNotSaveTheOrderWhenTheEventAlreadyStarted() {
+        Event started = new Event("e-1", "Concert", "Arena", NOW.minusSeconds(60), NOW.plusSeconds(3600), 5000,
+                Inventory.initial(5000), NOW.minusSeconds(86400));
+        when(eventRetriever.findById("e-1")).thenReturn(Mono.just(started));
+
+        StepVerifier.create(useCase.run(new NewOrder("e-1", 1), "c-1"))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(EventClosedException.class)
+                        .hasMessage("event e-1 already started, so its sales are closed"))
+                .verify();
+
+        verifyNoInteractions(orderCreator, orderPublisher);
+    }
+
+    @Test
+    void emitsEventClosedWhenTheEventStartsAtThisVeryInstant() {
+        Event startingNow = new Event("e-1", "Concert", "Arena", NOW, NOW.plusSeconds(3600), 5000,
+                Inventory.initial(5000), NOW.minusSeconds(86400));
+        when(eventRetriever.findById("e-1")).thenReturn(Mono.just(startingNow));
+
+        StepVerifier.create(useCase.run(new NewOrder("e-1", 1), "c-1"))
+                .expectError(EventClosedException.class)
+                .verify();
     }
 
     @Test

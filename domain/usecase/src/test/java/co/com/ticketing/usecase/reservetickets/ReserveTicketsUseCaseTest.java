@@ -1,6 +1,10 @@
 package co.com.ticketing.usecase.reservetickets;
 
+import co.com.ticketing.model.event.Event;
+import co.com.ticketing.model.event.Inventory;
+import co.com.ticketing.model.event.gateways.EventRetriever;
 import co.com.ticketing.model.exception.ConcurrencyConflictException;
+import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.exception.OrderNotFoundException;
 import co.com.ticketing.model.exception.TicketsSoldOutException;
@@ -39,9 +43,14 @@ class ReserveTicketsUseCaseTest {
     private static final QueuedOrder QUEUED = new QueuedOrder(new OrderDetails("o-1", "e-1", "c-1", 2, NOW));
     private static final ReservedOrder RESERVED = QUEUED.reserve(NOW, Duration.ofMinutes(10));
     private static final RejectedOrder REJECTED = QUEUED.reject(RejectionReason.SOLD_OUT);
+    private static final Event OPEN_EVENT = event(NOW.plus(Duration.ofDays(30)));
+    private static final Event STARTED_EVENT = event(NOW.minus(Duration.ofMinutes(5)));
 
     @Mock
     private OrderRetriever orderRetriever;
+
+    @Mock
+    private EventRetriever eventRetriever;
 
     @Mock
     private InventoryUpdater inventoryUpdater;
@@ -53,13 +62,14 @@ class ReserveTicketsUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        useCase = new ReserveTicketsUseCase(orderRetriever, inventoryUpdater, orderStatusUpdater,
+        useCase = new ReserveTicketsUseCase(orderRetriever, eventRetriever, inventoryUpdater, orderStatusUpdater,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
     void reservesTheTicketsOfAQueuedOrderForTenMinutes() {
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(QUEUED));
+        when(eventRetriever.findById("e-1")).thenReturn(Mono.just(OPEN_EVENT));
         when(inventoryUpdater.reserveTickets(RESERVED)).thenReturn(Mono.just(RESERVED));
 
         StepVerifier.create(useCase.run("o-1")).verifyComplete();
@@ -71,12 +81,38 @@ class ReserveTicketsUseCaseTest {
     @Test
     void rejectsTheOrderWhenTheTicketsAreSoldOut() {
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(QUEUED));
+        when(eventRetriever.findById("e-1")).thenReturn(Mono.just(OPEN_EVENT));
         when(inventoryUpdater.reserveTickets(RESERVED)).thenReturn(Mono.error(new TicketsSoldOutException("e-1", 2)));
         when(orderStatusUpdater.markRejected(REJECTED)).thenReturn(Mono.just(REJECTED));
 
         StepVerifier.create(useCase.run("o-1")).verifyComplete();
 
         verify(orderStatusUpdater).markRejected(REJECTED);
+    }
+
+    @Test
+    void rejectsTheOrderWhenTheEventStartedWhileItWasQueued() {
+        RejectedOrder closed = QUEUED.reject(RejectionReason.EVENT_CLOSED);
+        when(orderRetriever.findById("o-1")).thenReturn(Mono.just(QUEUED));
+        when(eventRetriever.findById("e-1")).thenReturn(Mono.just(STARTED_EVENT));
+        when(orderStatusUpdater.markRejected(closed)).thenReturn(Mono.just(closed));
+
+        StepVerifier.create(useCase.run("o-1")).verifyComplete();
+
+        verify(orderStatusUpdater).markRejected(closed);
+        verifyNoInteractions(inventoryUpdater);
+    }
+
+    @Test
+    void failsWhenTheEventOfTheOrderDoesNotExist() {
+        when(orderRetriever.findById("o-1")).thenReturn(Mono.just(QUEUED));
+        when(eventRetriever.findById("e-1")).thenReturn(Mono.empty());
+
+        StepVerifier.create(useCase.run("o-1"))
+                .expectError(EventNotFoundException.class)
+                .verify();
+
+        verifyNoInteractions(inventoryUpdater, orderStatusUpdater);
     }
 
     @Test
@@ -95,6 +131,7 @@ class ReserveTicketsUseCaseTest {
     @Test
     void ignoresAnOrderReservedByAnotherProcessAtTheSameTime() {
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(QUEUED));
+        when(eventRetriever.findById("e-1")).thenReturn(Mono.just(OPEN_EVENT));
         when(inventoryUpdater.reserveTickets(RESERVED))
                 .thenReturn(Mono.error(new OrderAlreadyProcessedException("o-1")));
 
@@ -106,6 +143,7 @@ class ReserveTicketsUseCaseTest {
     @Test
     void ignoresAnOrderRejectedByAnotherProcessAtTheSameTime() {
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(QUEUED));
+        when(eventRetriever.findById("e-1")).thenReturn(Mono.just(OPEN_EVENT));
         when(inventoryUpdater.reserveTickets(RESERVED)).thenReturn(Mono.error(new TicketsSoldOutException("e-1", 2)));
         when(orderStatusUpdater.markRejected(REJECTED))
                 .thenReturn(Mono.error(new OrderAlreadyProcessedException("o-1")));
@@ -125,6 +163,7 @@ class ReserveTicketsUseCaseTest {
     @Test
     void retriesWhenAConcurrentWriteGetsInTheWay() {
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(QUEUED));
+        when(eventRetriever.findById("e-1")).thenReturn(Mono.just(OPEN_EVENT));
         when(inventoryUpdater.reserveTickets(RESERVED))
                 .thenReturn(Mono.error(new ConcurrencyConflictException("o-1")))
                 .thenReturn(Mono.just(RESERVED));
@@ -137,6 +176,7 @@ class ReserveTicketsUseCaseTest {
     @Test
     void givesUpAfterTheLastRetryAndKeepsTheConflict() {
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(QUEUED));
+        when(eventRetriever.findById("e-1")).thenReturn(Mono.just(OPEN_EVENT));
         when(inventoryUpdater.reserveTickets(RESERVED))
                 .thenReturn(Mono.error(new ConcurrencyConflictException("o-1")));
 
@@ -151,6 +191,7 @@ class ReserveTicketsUseCaseTest {
     @Test
     void doesNotRetryOtherErrors() {
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(QUEUED));
+        when(eventRetriever.findById("e-1")).thenReturn(Mono.just(OPEN_EVENT));
         when(inventoryUpdater.reserveTickets(RESERVED)).thenReturn(Mono.error(new IllegalStateException("dynamo down")));
 
         StepVerifier.create(useCase.run("o-1"))
@@ -158,5 +199,10 @@ class ReserveTicketsUseCaseTest {
                 .verify();
 
         verify(inventoryUpdater, times(1)).reserveTickets(RESERVED);
+    }
+
+    private static Event event(Instant startsAt) {
+        return new Event("e-1", "Concert", "Arena", startsAt, startsAt.plus(Duration.ofHours(3)), 5000,
+                Inventory.initial(5000), NOW.minus(Duration.ofDays(60)));
     }
 }

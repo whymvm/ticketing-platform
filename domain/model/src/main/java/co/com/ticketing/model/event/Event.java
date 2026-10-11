@@ -42,6 +42,13 @@ public record Event(String id,
         return requireFutureStart(event, now);
     }
 
+    /**
+     * Tells if tickets can still be sold at the given instant. Sales close when the event starts.
+     */
+    public boolean isOpenAt(Instant now) {
+        return now.isBefore(startsAt);
+    }
+
     private static String validText(String value, Supplier<RuntimeException> error) {
         return Optional.ofNullable(value)
                 .filter(text -> !text.isBlank() && text.length() <= MAX_TEXT_LENGTH)

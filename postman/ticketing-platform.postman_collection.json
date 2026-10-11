@@ -1186,7 +1186,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "// The consumer processes the order asynchronously: repeat this request while the order is still queued.",
-            "// The consumer usually answers in well under a second; 10 attempts (about 10 s) leave room for a slow start",
+                  "// The consumer usually answers in well under a second; 10 attempts (about 10 s) leave room for a slow start",
                   "const order = pm.response.json();",
                   "const attempts = Number(pm.collectionVariables.get('pollAttempts') || 0);",
                   "if (order.status === 'QUEUED' && attempts < 10) {",
@@ -2125,7 +2125,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "// The consumer processes the order asynchronously: repeat this request while the order is still queued.",
-            "// The consumer usually answers in well under a second; 10 attempts (about 10 s) leave room for a slow start",
+                  "// The consumer usually answers in well under a second; 10 attempts (about 10 s) leave room for a slow start",
                   "const order = pm.response.json();",
                   "const attempts = Number(pm.collectionVariables.get('pollAttempts') || 0);",
                   "if (order.status === 'QUEUED' && attempts < 10) {",
@@ -2281,6 +2281,221 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Event closed",
+      "description": "Shows that sales close when an event starts.",
+      "item": [
+        {
+          "name": "Create event - starting in 3 seconds",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const startsAt = Date.now() + 3000;",
+                  "pm.collectionVariables.set('soonStartsAt', new Date(startsAt).toISOString());",
+                  "pm.collectionVariables.set('soonFinishesAt', new Date(startsAt + 3 * 60 * 60 * 1000).toISOString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('closedEventId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events"
+              ]
+            },
+            "description": "Creates an event that starts 3 seconds from now. The API does not accept events in the past, so this is how the collection gets an event whose sales close during the run.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Last Minute Show\",\n  \"venue\": \"Teatro Metropolitano\",\n  \"startsAt\": \"{{soonStartsAt}}\",\n  \"finishesAt\": \"{{soonFinishesAt}}\",\n  \"capacity\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Create event - starting in 3 seconds",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "Creates an event that starts 3 seconds from now. The API does not accept events in the past, so this is how the collection gets an event whose sales close during the run.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Last Minute Show\",\n  \"venue\": \"Teatro Metropolitano\",\n  \"startsAt\": \"{{soonStartsAt}}\",\n  \"finishesAt\": \"{{soonFinishesAt}}\",\n  \"capacity\": 100\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"5c4b3a29-1807-4f6e-9d5c-4b3a29180700\",\n  \"name\": \"Last Minute Show\",\n  \"venue\": \"Teatro Metropolitano\",\n  \"startsAt\": \"2026-10-11T18:00:03Z\",\n  \"finishesAt\": \"2026-10-11T21:00:03Z\",\n  \"capacity\": 100,\n  \"inventory\": {\n    \"available\": 100,\n    \"reserved\": 0,\n    \"pendingConfirmation\": 0,\n    \"sold\": 0,\n    \"complimentary\": 0\n  },\n  \"createdAt\": \"2026-10-11T18:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Place order - event already started",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Waits until the event created by the previous request has started",
+                  "setTimeout(() => {}, 4000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 422', () => pm.response.to.have.status(422));",
+                  "pm.test('returns code EVENT_CLOSED', () => pm.expect(pm.response.json().code).to.eql('EVENT_CLOSED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Waits until the event starts and then tries to buy. Sales close when the event starts, so the API answers 422 and saves no order.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{closedEventId}}\",\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order - event already started",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Waits until the event starts and then tries to buy. Sales close when the event starts, so the API answers 422 and saves no order.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{closedEventId}}\",\n  \"quantity\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Unprocessable Content",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"event 5c4b3a29-1807-4f6e-9d5c-4b3a29180700 already started, so its sales are closed\",\n  \"instance\": \"/api/v1/orders\",\n  \"status\": 422,\n  \"title\": \"Unprocessable Content\",\n  \"code\": \"EVENT_CLOSED\"\n}"
+            }
+          ]
+        }
+      ]
     }
   ],
   "variable": [
@@ -2322,6 +2537,18 @@
     },
     {
       "key": "soldOutOrderId",
+      "value": ""
+    },
+    {
+      "key": "soonStartsAt",
+      "value": ""
+    },
+    {
+      "key": "soonFinishesAt",
+      "value": ""
+    },
+    {
+      "key": "closedEventId",
       "value": ""
     }
   ]

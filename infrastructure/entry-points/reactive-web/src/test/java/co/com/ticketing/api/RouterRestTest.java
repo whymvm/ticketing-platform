@@ -3,6 +3,7 @@ package co.com.ticketing.api;
 import co.com.ticketing.model.event.Event;
 import co.com.ticketing.model.event.Inventory;
 import co.com.ticketing.model.exception.ConcurrencyConflictException;
+import co.com.ticketing.model.exception.EventClosedException;
 import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.exception.EventStartsInThePastException;
 import co.com.ticketing.model.exception.InvalidEventCapacityException;
@@ -350,6 +351,22 @@ class RouterRestTest {
                 .expectStatus().isNotFound()
                 .expectBody()
                 .jsonPath("$.code").isEqualTo("EVENT_NOT_FOUND");
+    }
+
+    @Test
+    void placeOrderReturns422WhenTheEventAlreadyStarted() {
+        when(placeOrderUseCase.run(any(NewOrder.class), any()))
+                .thenReturn(Mono.error(new EventClosedException("e-1")));
+
+        webTestClient.post()
+                .uri("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"eventId\":\"e-1\",\"quantity\":1}")
+                .exchange()
+                .expectStatus().isEqualTo(422)
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("EVENT_CLOSED")
+                .jsonPath("$.detail").isEqualTo("event e-1 already started, so its sales are closed");
     }
 
     static Stream<Arguments> invalidOrders() {
