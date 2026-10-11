@@ -33,9 +33,8 @@ Todo corre en local con un solo comando: `docker compose up`.
 16. [Qué cambiaría en producción](#16-qué-cambiaría-en-producción)
 17. [Hoja de ruta](#17-hoja-de-ruta)
 18. [Estructura del proyecto](#18-estructura-del-proyecto)
-19. [Cómo contribuir](#19-cómo-contribuir)
-20. [Licencia y autor](#20-licencia-y-autor)
-21. [Referencias](#21-referencias)
+19. [Licencia y autor](#19-licencia-y-autor)
+20. [Referencias](#20-referencias)
 
 ## 1. El problema y cómo se resuelve
 
@@ -995,22 +994,13 @@ En orden de prioridad:
 └── docker-compose.yml             # LocalStack → Terraform → aplicación
 ```
 
-## 19. Cómo contribuir
-
-1. Crear una rama desde `develop`: `feature/<nombre>`.
-2. Hacer *commits* pequeños siguiendo [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `test:`, `docs:`, `refactor:`…).
-3. Correr `./gradlew build`, `./gradlew terraformValidate` y `./gradlew smokeTest`.
-4. Abrir un *pull request* hacia `develop`; solo se puede integrar con el CI en verde.
-
-El código, los nombres y los comentarios están en inglés. Los módulos, modelos y casos de uso nuevos se generan con las tareas del plugin de scaffold de Bancolombia: `gm` (modelo), `guc` (caso de uso), `gda` (*driven adapter*) y `gep` (*entry point*). Reescriben `application.yaml`, así que hay que revisar su *diff*.
-
-## 20. Licencia y autor
+## 19. Licencia y autor
 
 Publicado bajo la [licencia MIT](LICENSE). La estructura del proyecto se generó con el plugin [scaffold-clean-architecture](https://github.com/bancolombia/scaffold-clean-architecture) de Bancolombia, distribuido bajo la [licencia Apache 2.0](https://github.com/bancolombia/scaffold-clean-architecture/blob/master/LICENSE).
 
-Construido por **Mateo** ([@whymvm](https://github.com/whymvm)). Las preguntas y comentarios son bienvenidos en los [*issues* de GitHub](https://github.com/whymvm/ticketing-platform/issues).
+Construido por **Mateo** ([@whymvm](https://github.com/whymvm)).
 
-## 21. Referencias
+## 20. Referencias
 
 **Arquitectura**
 - Bancolombia, [scaffold-clean-architecture](https://github.com/bancolombia/scaffold-clean-architecture) y su [documentación](https://bancolombia.github.io/scaffold-clean-architecture/docs/intro).
