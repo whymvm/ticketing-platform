@@ -22,6 +22,9 @@ import co.com.ticketing.model.exception.OrderNotFoundException;
 import co.com.ticketing.model.exception.PaymentExpiredException;
 import co.com.ticketing.model.exception.OrderNotReservedException;
 import co.com.ticketing.model.exception.ReservationExpiredException;
+import co.com.ticketing.model.exception.TicketsSoldOutException;
+import co.com.ticketing.model.order.ComplimentaryOrder;
+import co.com.ticketing.model.order.NewComplimentary;
 import co.com.ticketing.model.order.OrderStatus;
 import co.com.ticketing.model.order.NewOrder;
 import co.com.ticketing.model.order.OrderDetails;
@@ -37,6 +40,7 @@ import co.com.ticketing.usecase.createevent.CreateEventUseCase;
 import co.com.ticketing.usecase.retrieveavailability.RetrieveAvailabilityUseCase;
 import co.com.ticketing.usecase.watchavailability.WatchAvailabilityUseCase;
 import co.com.ticketing.usecase.confirmorder.ConfirmOrderUseCase;
+import co.com.ticketing.usecase.issuecomplimentary.IssueComplimentaryUseCase;
 import co.com.ticketing.usecase.placeorder.PlaceOrderUseCase;
 import co.com.ticketing.usecase.recordpayment.RecordPaymentUseCase;
 import co.com.ticketing.usecase.retrieveorder.RetrieveOrderUseCase;
@@ -66,9 +70,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-@ContextConfiguration(classes = {RouterRest.class, EventHandler.class, OrderHandler.class, ErrorHandler.class})
-@WebFluxTest
+@ContextConfiguration(classes = {RouterRest.class, EventHandler.class, OrderHandler.class, ErrorHandler.class,
+        AdminAccess.class})
+@WebFluxTest(properties = "security.admin-api-key=" + RouterRestTest.ADMIN_KEY)
 class RouterRestTest {
+
+    static final String ADMIN_KEY = "test-admin-key";
 
     private static final String VALID_BODY = """
             {"name":"Concert","venue":"Arena","startsAt":"2026-12-05T01:00:00Z",
@@ -104,6 +111,9 @@ class RouterRestTest {
 
     @MockitoBean
     private RetrieveOrderHistoryUseCase retrieveOrderHistoryUseCase;
+
+    @MockitoBean
+    private IssueComplimentaryUseCase issueComplimentaryUseCase;
 
     @Test
     void createEventReturns201WithLocationAndBody() {
@@ -681,5 +691,90 @@ class RouterRestTest {
                 .jsonPath("$.code").isEqualTo("MISSING_REQUEST_BODY");
 
         verifyNoInteractions(placeOrderUseCase);
+    }
+
+    private static final NewComplimentary COMPLIMENTARY_REQUEST = new NewComplimentary("guest-001", 2);
+    private static final String COMPLIMENTARY_BODY = "{\"recipientId\":\"guest-001\",\"quantity\":2}";
+
+    @Test
+    void issueComplimentaryReturns201WithLocationAndTheComplimentaryOrder() {
+        ComplimentaryOrder complimentary = ComplimentaryOrder.issue("o-7", "e-1", COMPLIMENTARY_REQUEST,
+                Instant.parse("2026-10-11T12:00:00Z"));
+        when(issueComplimentaryUseCase.run("e-1", COMPLIMENTARY_REQUEST, "comp-0001"))
+                .thenReturn(Mono.just(OrderPlacement.created(complimentary)));
+
+        webTestClient.post()
+                .uri("/api/v1/events/e-1/complimentary")
+                .header("X-Admin-Key", ADMIN_KEY)
+                .header("Idempotency-Key", "comp-0001")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(COMPLIMENTARY_BODY)
+                .exchange()
+                .expectStatus().isCreated()
+                .expectHeader().location("/api/v1/orders/o-7")
+                .expectHeader().valueEquals("Idempotent-Replayed", "false")
+                .expectBody()
+                .jsonPath("$.status").isEqualTo("COMPLIMENTARY")
+                .jsonPath("$.ticketStatus").isEqualTo("COMPLIMENTARY")
+                .jsonPath("$.customerId").isEqualTo("guest-001")
+                .jsonPath("$.quantity").isEqualTo(2)
+                .jsonPath("$.expiresAt").doesNotExist();
+    }
+
+    @ParameterizedTest
+    @MethodSource("deniedAdminKeys")
+    void issueComplimentaryReturns403WithoutAValidAdminKey(String adminKey) {
+        webTestClient.post()
+                .uri("/api/v1/events/e-1/complimentary")
+                .headers(headers -> {
+                    if (adminKey != null) {
+                        headers.add("X-Admin-Key", adminKey);
+                    }
+                })
+                .header("Idempotency-Key", "comp-0001")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(COMPLIMENTARY_BODY)
+                .exchange()
+                .expectStatus().isForbidden()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("ADMIN_ACCESS_DENIED");
+
+        verifyNoInteractions(issueComplimentaryUseCase);
+    }
+
+    static Stream<String> deniedAdminKeys() {
+        return Stream.of(null, "", "wrong-admin-key", ADMIN_KEY + "x");
+    }
+
+    @Test
+    void issueComplimentaryReturns409WhenThereAreNotEnoughTickets() {
+        when(issueComplimentaryUseCase.run(any(), any(NewComplimentary.class), any()))
+                .thenReturn(Mono.error(new TicketsSoldOutException("e-1", 2)));
+
+        webTestClient.post()
+                .uri("/api/v1/events/e-1/complimentary")
+                .header("X-Admin-Key", ADMIN_KEY)
+                .header("Idempotency-Key", "comp-0001")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(COMPLIMENTARY_BODY)
+                .exchange()
+                .expectStatus().isEqualTo(409)
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("TICKETS_SOLD_OUT")
+                .jsonPath("$.detail").isEqualTo("event e-1 does not have 2 tickets available");
+    }
+
+    @Test
+    void issueComplimentaryReturns400WhenTheBodyIsMissing() {
+        webTestClient.post()
+                .uri("/api/v1/events/e-1/complimentary")
+                .header("X-Admin-Key", ADMIN_KEY)
+                .contentType(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("MISSING_REQUEST_BODY");
+
+        verifyNoInteractions(issueComplimentaryUseCase);
     }
 }

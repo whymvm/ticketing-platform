@@ -26,7 +26,6 @@ import software.amazon.awssdk.enhanced.dynamodb.model.Page;
 import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.Put;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
@@ -70,7 +69,8 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
     // The order, its first history entry and the idempotency key are written together, or none of them
     @Override
     public Mono<QueuedOrder> save(QueuedOrder order, IdempotencyRecord record) {
-        return transaction(newOrder(order), order, IdempotencyWrites.claim(tables.idempotency(), record))
+        return transaction(OrderWrites.newOrder(tables.orders(), order), order,
+                        IdempotencyWrites.claim(tables.idempotency(), record))
                 .onErrorMap(TransactionCanceledException.class, error -> saveCancellationCause(error, order, record))
                 .thenReturn(order);
     }
@@ -114,17 +114,6 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
                         .transactItems(items)
                         .build()))
                 .then();
-    }
-
-    // A new order never overwrites an existing one with the same id
-    private TransactWriteItem newOrder(QueuedOrder order) {
-        return TransactWriteItem.builder().put(Put.builder()
-                        .tableName(tables.orders())
-                        .item(SCHEMA.itemToMap(OrderEntity.from(order), true))
-                        .conditionExpression(DynamoDBExpressions.ID_NOT_EXISTS.expression())
-                        .expressionAttributeNames(DynamoDBExpressions.ID_NOT_EXISTS.expressionNames())
-                        .build())
-                .build();
     }
 
     // Partial update: only the status, the reason and the update time change, and only if the order is still queued

@@ -4,6 +4,7 @@ import co.com.ticketing.model.exception.ConcurrencyConflictException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.exception.OrderNotAwaitingPaymentException;
 import co.com.ticketing.model.exception.OrderNotFoundException;
+import co.com.ticketing.model.order.ComplimentaryOrder;
 import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.PaymentNotification;
@@ -46,7 +47,8 @@ public class RecordPaymentUseCase {
                 .switchIfEmpty(Mono.error(() -> new OrderNotFoundException(orderId)))
                 .flatMap(order -> switch (order) {
                     case PendingConfirmationOrder pending -> record(pending, notification.result());
-                    case QueuedOrder _, ReservedOrder _, SoldOrder _, RejectedOrder _, ExpiredOrder _ ->
+                    case QueuedOrder _, ReservedOrder _, SoldOrder _, RejectedOrder _, ExpiredOrder _,
+                         ComplimentaryOrder _ ->
                             alreadyRecorded(order, notification.result());
                 });
     }

@@ -39,6 +39,12 @@ public class RouterRest {
                     method = RequestMethod.GET
             ),
             @RouterOperation(
+                    path = ApiPaths.EVENT_COMPLIMENTARY,
+                    beanClass = EventHandler.class,
+                    beanMethod = "issueComplimentary",
+                    method = RequestMethod.POST
+            ),
+            @RouterOperation(
                     path = ApiPaths.ORDERS,
                     beanClass = OrderHandler.class,
                     beanMethod = "placeOrder",
@@ -78,6 +84,7 @@ public class RouterRest {
                 .GET(ApiPaths.EVENT_BY_ID, eventHandler::retrieveEvent)
                 .GET(ApiPaths.EVENT_AVAILABILITY, eventHandler::retrieveAvailability)
                 .GET(ApiPaths.EVENT_AVAILABILITY_STREAM, eventHandler::streamAvailability)
+                .POST(ApiPaths.EVENT_COMPLIMENTARY, eventHandler::issueComplimentary)
                 .POST(ApiPaths.ORDERS, orderHandler::placeOrder)
                 .GET(ApiPaths.ORDER_BY_ID, orderHandler::retrieveOrder)
                 .POST(ApiPaths.ORDER_CONFIRMATION, orderHandler::confirmOrder)

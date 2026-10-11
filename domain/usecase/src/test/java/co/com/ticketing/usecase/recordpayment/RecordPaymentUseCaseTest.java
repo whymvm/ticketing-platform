@@ -5,6 +5,8 @@ import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.exception.OrderNotAwaitingPaymentException;
 import co.com.ticketing.model.exception.OrderNotFoundException;
 import co.com.ticketing.model.exception.PaymentExpiredException;
+import co.com.ticketing.model.order.ComplimentaryOrder;
+import co.com.ticketing.model.order.NewComplimentary;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.PaymentNotification;
 import co.com.ticketing.model.order.PaymentResult;
@@ -187,5 +189,19 @@ class RecordPaymentUseCaseTest {
         StepVerifier.create(useCase.run("o-1", APPROVED))
                 .expectError(ConcurrencyConflictException.class)
                 .verify();
+    }
+
+    @Test
+    void refusesAPaymentForComplimentaryTickets() {
+        when(orderRetriever.findById("o-1"))
+                .thenReturn(Mono.just(ComplimentaryOrder.issue("o-1", "e-1", new NewComplimentary("c-1", 2), NOW)));
+
+        StepVerifier.create(useCase.run("o-1", APPROVED))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(OrderNotAwaitingPaymentException.class)
+                        .hasMessage("order o-1 is not waiting for its payment because it is COMPLIMENTARY"))
+                .verify();
+
+        verifyNoInteractions(inventoryUpdater);
     }
 }

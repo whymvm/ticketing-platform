@@ -8,6 +8,8 @@ import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.exception.OrderNotFoundException;
 import co.com.ticketing.model.exception.TicketsSoldOutException;
+import co.com.ticketing.model.order.ComplimentaryOrder;
+import co.com.ticketing.model.order.NewComplimentary;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectedOrder;
@@ -128,6 +130,16 @@ class ReserveTicketsUseCaseTest {
         StepVerifier.create(useCase.run("o-1")).verifyComplete();
 
         verifyNoInteractions(inventoryUpdater, orderStatusUpdater);
+    }
+
+    @Test
+    void ignoresComplimentaryTicketsBecauseTheyAreNeverQueued() {
+        when(orderRetriever.findById("o-1"))
+                .thenReturn(Mono.just(ComplimentaryOrder.issue("o-1", "e-1", new NewComplimentary("c-1", 2), NOW)));
+
+        StepVerifier.create(useCase.run("o-1")).verifyComplete();
+
+        verifyNoInteractions(eventRetriever, inventoryUpdater, orderStatusUpdater);
     }
 
     @Test

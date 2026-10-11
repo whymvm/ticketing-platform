@@ -7,7 +7,7 @@ import java.time.Instant;
  * from it, so an invalid transition does not compile.
  */
 public sealed interface Order permits QueuedOrder, ReservedOrder, PendingConfirmationOrder, RejectedOrder,
-        ExpiredOrder, SoldOrder {
+        ExpiredOrder, SoldOrder, ComplimentaryOrder {
 
     /**
      * Data shared by every state.

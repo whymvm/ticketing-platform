@@ -10,6 +10,7 @@ public final class ApiPaths {
     public static final String EVENT_BY_ID = EVENTS + "/{" + EVENT_ID + "}";
     public static final String EVENT_AVAILABILITY = EVENT_BY_ID + "/availability";
     public static final String EVENT_AVAILABILITY_STREAM = EVENT_AVAILABILITY + "/stream";
+    public static final String EVENT_COMPLIMENTARY = EVENT_BY_ID + "/complimentary";
 
     public static final String ORDER_ID = "id";
     public static final String ORDERS = "/api/v1/orders";

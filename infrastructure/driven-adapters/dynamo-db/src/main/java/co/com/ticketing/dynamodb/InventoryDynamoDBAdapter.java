@@ -2,11 +2,15 @@ package co.com.ticketing.dynamodb;
 
 import co.com.ticketing.dynamodb.config.DynamoDBProperties;
 import co.com.ticketing.model.exception.ConcurrencyConflictException;
+import co.com.ticketing.model.exception.DuplicateRequestException;
 import co.com.ticketing.model.exception.InconsistentInventoryException;
+import co.com.ticketing.model.exception.OrderAlreadyExistsException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.exception.TicketsSoldOutException;
+import co.com.ticketing.model.order.ComplimentaryOrder;
 import co.com.ticketing.model.order.ExpirationReason;
 import co.com.ticketing.model.order.ExpiredOrder;
+import co.com.ticketing.model.order.IdempotencyRecord;
 import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.OrderStatus;
@@ -14,6 +18,7 @@ import co.com.ticketing.model.order.PendingConfirmationOrder;
 import co.com.ticketing.model.order.RejectedOrder;
 import co.com.ticketing.model.order.ReservedOrder;
 import co.com.ticketing.model.order.SoldOrder;
+import co.com.ticketing.model.order.gateways.ComplimentaryIssuer;
 import co.com.ticketing.model.order.gateways.InventoryUpdater;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
@@ -35,7 +40,7 @@ import static co.com.ticketing.dynamodb.DynamoDBExpressions.STATUS_NAME;
  * changes the order and records the transition in its history, all in one transaction.
  */
 @Repository
-public class InventoryDynamoDBAdapter implements InventoryUpdater {
+public class InventoryDynamoDBAdapter implements InventoryUpdater, ComplimentaryIssuer {
 
     // Position of each item in the transaction, also used to read its cancellation reason
     private static final int EVENT_ITEM = 0;
@@ -45,6 +50,10 @@ public class InventoryDynamoDBAdapter implements InventoryUpdater {
     private static final String RESERVED = "reserved";
     private static final String PENDING_CONFIRMATION = "pendingConfirmation";
     private static final String SOLD = "sold";
+    private static final String COMPLIMENTARY = "complimentary";
+
+    // Position of the idempotency record in the complimentary transaction
+    private static final int IDEMPOTENCY_ITEM = 3;
 
     private final DynamoDbAsyncClient client;
     private final DynamoDBProperties.Tables tables;
@@ -91,6 +100,37 @@ public class InventoryDynamoDBAdapter implements InventoryUpdater {
                 leaveHold(order, OrderStatus.PENDING_CONFIRMATION,
                         Map.of("rejectionReason", order.rejectionReason().name())), order,
                 () -> fewerTicketsThanExpected(order.details(), PENDING_CONFIRMATION));
+    }
+
+    // The tickets, the new order, its history entry and the idempotency key are written together, or none of them
+    @Override
+    public Mono<ComplimentaryOrder> issue(ComplimentaryOrder order, IdempotencyRecord record) {
+        OrderDetails details = order.details();
+        return Mono.fromFuture(() -> client.transactWriteItems(TransactWriteItemsRequest.builder()
+                        .transactItems(moveTickets(details, AVAILABLE, COMPLIMENTARY),
+                                OrderWrites.newOrder(tables.orders(), order),
+                                OrderHistoryWrites.record(tables.orderHistory(), order),
+                                IdempotencyWrites.claim(tables.idempotency(), record))
+                        .build()))
+                .onErrorMap(TransactionCanceledException.class, error -> issueCancellationCause(error, details, record))
+                .thenReturn(order);
+    }
+
+    private static Throwable issueCancellationCause(TransactionCanceledException error, OrderDetails details,
+                                                    IdempotencyRecord record) {
+        if (TransactionCancellation.failedCondition(error, IDEMPOTENCY_ITEM)) {
+            return new DuplicateRequestException(record.key());
+        }
+        if (TransactionCancellation.failedCondition(error, EVENT_ITEM)) {
+            return new TicketsSoldOutException(details.eventId(), details.quantity());
+        }
+        if (TransactionCancellation.failedCondition(error, ORDER_ITEM)) {
+            return new OrderAlreadyExistsException(details.id());
+        }
+        if (TransactionCancellation.conflicted(error)) {
+            return new ConcurrencyConflictException(details.id());
+        }
+        return error;
     }
 
     private <T extends Order> Mono<T> transaction(TransactWriteItem event, TransactWriteItem orderChange, T order,

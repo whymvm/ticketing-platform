@@ -1,6 +1,8 @@
 package co.com.ticketing.api;
 
 import co.com.ticketing.model.event.TicketStatus;
+import co.com.ticketing.model.order.ComplimentaryOrder;
+import co.com.ticketing.model.order.NewComplimentary;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.OrderStatus;
 import co.com.ticketing.model.order.QueuedOrder;
@@ -58,5 +60,12 @@ class OrderResponseTest {
         assertThat(OrderResponse.from(QUEUED.reject(RejectionReason.SOLD_OUT, LATER))).isEqualTo(
                 new OrderResponse("o-1", "e-1", "c-1", 2, OrderStatus.REJECTED, TicketStatus.AVAILABLE, null,
                         RejectionReason.SOLD_OUT, NOW, LATER));
+    }
+
+    @Test
+    void aComplimentaryOrderHasComplimentaryTicketsAndNothingToExpire() {
+        assertThat(OrderResponse.from(ComplimentaryOrder.issue("o-1", "e-1", new NewComplimentary("guest-001", 2), NOW)))
+                .isEqualTo(new OrderResponse("o-1", "e-1", "guest-001", 2, OrderStatus.COMPLIMENTARY,
+                        TicketStatus.COMPLIMENTARY, null, null, NOW, NOW));
     }
 }

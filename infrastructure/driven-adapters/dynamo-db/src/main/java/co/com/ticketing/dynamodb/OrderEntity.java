@@ -1,5 +1,6 @@
 package co.com.ticketing.dynamodb;
 
+import co.com.ticketing.model.order.ComplimentaryOrder;
 import co.com.ticketing.model.order.ExpirationReason;
 import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.Order;
@@ -47,9 +48,9 @@ public class OrderEntity {
     private Instant updatedAt;
 
     /**
-     * Builds the item from a new order.
+     * Builds the item of a new order: a queued one or a complimentary one, which have no deadline nor reason.
      */
-    public static OrderEntity from(QueuedOrder order) {
+    public static OrderEntity from(Order order) {
         OrderDetails details = order.details();
         OrderEntity entity = new OrderEntity();
         entity.setId(details.id());
@@ -76,6 +77,7 @@ public class OrderEntity {
             case REJECTED -> new RejectedOrder(details, RejectionReason.valueOf(rejectionReason), changedAt);
             case EXPIRED -> new ExpiredOrder(details, expirationReasonOrDefault(), changedAt);
             case SOLD -> new SoldOrder(details, changedAt);
+            case COMPLIMENTARY -> new ComplimentaryOrder(details);
         };
     }
 

@@ -20,6 +20,7 @@ import co.com.ticketing.model.exception.OrderNotAwaitingPaymentException;
 import co.com.ticketing.model.exception.OrderNotReservedException;
 import co.com.ticketing.model.exception.PaymentExpiredException;
 import co.com.ticketing.model.exception.ReservationExpiredException;
+import co.com.ticketing.model.exception.TicketsSoldOutException;
 import lombok.extern.java.Log;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -54,6 +55,8 @@ public class ErrorHandler {
             case InvalidEventCapacityException e -> problem(ErrorCode.INVALID_EVENT_CAPACITY, e.getMessage(), request);
             case EventNotFoundException e -> problem(ErrorCode.EVENT_NOT_FOUND, e.getMessage(), request);
             case EventClosedException e -> problem(ErrorCode.EVENT_CLOSED, e.getMessage(), request);
+            case TicketsSoldOutException e -> problem(ErrorCode.TICKETS_SOLD_OUT, e.getMessage(), request);
+            case AdminAccessDeniedException e -> problem(ErrorCode.ADMIN_ACCESS_DENIED, e.getMessage(), request);
             case InvalidOrderQuantityException e -> problem(ErrorCode.INVALID_ORDER_QUANTITY, e.getMessage(), request);
             case InvalidOrderEventException e -> problem(ErrorCode.INVALID_ORDER_EVENT, e.getMessage(), request);
             case InvalidCustomerException e -> problem(ErrorCode.INVALID_CUSTOMER, e.getMessage(), request);

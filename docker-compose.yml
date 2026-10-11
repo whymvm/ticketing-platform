@@ -48,6 +48,7 @@ services:
       AWS_ENDPOINT: http://localstack:4566
       AWS_ACCESS_KEY_ID: test        # dummy LocalStack credentials, not secrets
       AWS_SECRET_ACCESS_KEY: test
+      ADMIN_API_KEY: local-admin-key # local-only key for the complimentary tickets, not a secret
       EVENTS_TABLE: local-ticketing-events
       ORDERS_TABLE: local-ticketing-orders
       ORDER_HISTORY_TABLE: local-ticketing-order-history
