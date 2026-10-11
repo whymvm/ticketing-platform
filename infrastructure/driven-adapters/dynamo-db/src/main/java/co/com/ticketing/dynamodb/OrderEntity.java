@@ -8,6 +8,7 @@ import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectedOrder;
 import co.com.ticketing.model.order.RejectionReason;
 import co.com.ticketing.model.order.ReservedOrder;
+import co.com.ticketing.model.order.SoldOrder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -65,6 +66,7 @@ public class OrderEntity {
             case RESERVED -> new ReservedOrder(details, expiresAt);
             case REJECTED -> new RejectedOrder(details, RejectionReason.valueOf(rejectionReason));
             case EXPIRED -> new ExpiredOrder(details);
+            case SOLD -> new SoldOrder(details);
         };
     }
 }

@@ -82,8 +82,9 @@ class ReserveTicketsUseCaseTest {
     @Test
     void ignoresAnOrderThatIsNoLongerQueued() {
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(RESERVED), Mono.just(REJECTED),
-                Mono.just(RESERVED.expire()));
+                Mono.just(RESERVED.expire()), Mono.just(RESERVED.confirm(NOW)));
 
+        StepVerifier.create(useCase.run("o-1")).verifyComplete();
         StepVerifier.create(useCase.run("o-1")).verifyComplete();
         StepVerifier.create(useCase.run("o-1")).verifyComplete();
         StepVerifier.create(useCase.run("o-1")).verifyComplete();

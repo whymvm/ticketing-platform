@@ -9,6 +9,7 @@ import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.ReservedOrder;
+import co.com.ticketing.model.order.SoldOrder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -107,11 +108,54 @@ class InventoryDynamoDBAdapterTest {
 
         Update order = captor.getValue().transactItems().get(1).update();
         assertThat(order.key()).containsEntry("id", AttributeValue.fromS("o-1"));
-        assertThat(order.updateExpression()).isEqualTo("SET #status = :expired REMOVE #expiryShard");
+        assertThat(order.updateExpression()).isEqualTo("SET #status = :newStatus REMOVE #expiryShard");
         assertThat(order.conditionExpression()).isEqualTo("#status = :reserved");
         assertThat(order.expressionAttributeValues())
-                .containsEntry(":expired", AttributeValue.fromS("EXPIRED"))
+                .containsEntry(":newStatus", AttributeValue.fromS("EXPIRED"))
                 .containsEntry(":reserved", AttributeValue.fromS("RESERVED"));
+    }
+
+    @Test
+    void sellTicketsMovesTheReservedTicketsToSoldAndMarksTheOrderInOneTransaction() {
+        SoldOrder sold = ORDER.confirm(NOW);
+        when(client.transactWriteItems(any(TransactWriteItemsRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(TransactWriteItemsResponse.builder().build()));
+
+        StepVerifier.create(adapter.sellTickets(sold))
+                .expectNext(sold)
+                .verifyComplete();
+
+        ArgumentCaptor<TransactWriteItemsRequest> captor = ArgumentCaptor.forClass(TransactWriteItemsRequest.class);
+        verify(client).transactWriteItems(captor.capture());
+
+        Update event = captor.getValue().transactItems().get(0).update();
+        assertThat(event.updateExpression())
+                .isEqualTo("SET #reserved = #reserved - :quantity, #sold = #sold + :quantity");
+        assertThat(event.conditionExpression()).isEqualTo("#reserved >= :quantity");
+        assertThat(event.expressionAttributeNames()).containsOnlyKeys("#reserved", "#sold");
+
+        Update order = captor.getValue().transactItems().get(1).update();
+        assertThat(order.updateExpression()).isEqualTo("SET #status = :newStatus REMOVE #expiryShard");
+        assertThat(order.conditionExpression()).isEqualTo("#status = :reserved");
+        assertThat(order.expressionAttributeValues()).containsEntry(":newStatus", AttributeValue.fromS("SOLD"));
+    }
+
+    @Test
+    void sellTicketsFailsWithOrderAlreadyProcessedWhenTheOrderIsNoLongerReserved() {
+        cancelWith("None", "ConditionalCheckFailed");
+
+        StepVerifier.create(adapter.sellTickets(ORDER.confirm(NOW)))
+                .expectError(OrderAlreadyProcessedException.class)
+                .verify();
+    }
+
+    @Test
+    void sellTicketsFailsWithInconsistentInventoryWhenTheEventHasTooFewReservedTickets() {
+        cancelWith("ConditionalCheckFailed", "None");
+
+        StepVerifier.create(adapter.sellTickets(ORDER.confirm(NOW)))
+                .expectError(InconsistentInventoryException.class)
+                .verify();
     }
 
     @Test

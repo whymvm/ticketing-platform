@@ -12,6 +12,7 @@ public final class ApiPaths {
     public static final String ORDER_ID = "id";
     public static final String ORDERS = "/api/v1/orders";
     public static final String ORDER_BY_ID = ORDERS + "/{" + ORDER_ID + "}";
+    public static final String ORDER_CONFIRMATION = ORDER_BY_ID + "/confirm";
 
     private ApiPaths() {
     }

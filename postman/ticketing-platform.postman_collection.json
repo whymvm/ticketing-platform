@@ -1175,8 +1175,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// Gives the queue consumer time to process the order",
-                  "setTimeout(() => {}, 3000);"
+                  "// Waits a moment before each attempt, so the queue consumer can process the order",
+                  "setTimeout(() => {}, 1000);"
                 ]
               }
             },
@@ -1185,17 +1185,26 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "// The consumer processes the order asynchronously: repeat this request while the order is still queued.",
+            "// 30 attempts cover the 15 s visibility timeout of a message taken by a consumer that stopped",
                   "const order = pm.response.json();",
-                  "pm.test('returns the order placed before', () => {",
-                  "    pm.expect(order.id).to.eql(pm.collectionVariables.get('orderId'));",
-                  "    pm.expect(order.customerId).to.eql(pm.collectionVariables.get('customerId'));",
-                  "});",
-                  "pm.test('the consumer reserved its tickets for 10 minutes', () => {",
-                  "    pm.expect(order.status).to.eql('RESERVED');",
-                  "    const minutes = (new Date(order.expiresAt) - new Date(order.createdAt)) / 60000;",
-                  "    pm.expect(minutes).to.be.within(9.9, 10.1);",
-                  "});"
+                  "const attempts = Number(pm.collectionVariables.get('pollAttempts') || 0);",
+                  "if (order.status === 'QUEUED' && attempts < 30) {",
+                  "    pm.collectionVariables.set('pollAttempts', attempts + 1);",
+                  "    postman.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset('pollAttempts');",
+                  "    pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('returns the order placed before', () => {",
+                  "        pm.expect(order.id).to.eql(pm.collectionVariables.get('orderId'));",
+                  "        pm.expect(order.customerId).to.eql(pm.collectionVariables.get('customerId'));",
+                  "    });",
+                  "    pm.test('the consumer reserved its tickets for 10 minutes', () => {",
+                  "        pm.expect(order.status).to.eql('RESERVED');",
+                  "        const minutes = (new Date(order.expiresAt) - new Date(order.createdAt)) / 60000;",
+                  "        pm.expect(minutes).to.be.within(9.9, 10.1);",
+                  "    });",
+                  "}"
                 ]
               }
             }
@@ -1405,6 +1414,305 @@
                 }
               ],
               "body": "{\n  \"detail\": \"no order found with id 6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"instance\": \"/api/v1/orders/6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"status\": 404,\n  \"title\": \"Not Found\",\n  \"code\": \"ORDER_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Confirm order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "const order = pm.response.json();",
+                  "pm.test('the order is sold', () => {",
+                  "    pm.expect(order.id).to.eql(pm.collectionVariables.get('orderId'));",
+                  "    pm.expect(order.status).to.eql('SOLD');",
+                  "    pm.expect(order).to.not.have.property('expiresAt');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "confirm"
+              ]
+            },
+            "description": "Confirms the purchase of the reserved order: its 2 tickets become sold."
+          },
+          "response": [
+            {
+              "name": "Confirm order",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "confirm"
+                  ]
+                },
+                "description": "Confirms the purchase of the reserved order: its 2 tickets become sold."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"SOLD\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Confirm order - again",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('returns the same sold order', () => pm.expect(pm.response.json().status).to.eql('SOLD'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "confirm"
+              ]
+            },
+            "description": "Confirms the same order again, for example after a network retry. The API returns the sold order and sells nothing twice."
+          },
+          "response": [
+            {
+              "name": "Confirm order - again",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "confirm"
+                  ]
+                },
+                "description": "Confirms the same order again, for example after a network retry. The API returns the sold order and sells nothing twice."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"SOLD\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve event - after the sale",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('the 2 tickets are sold', () => {",
+                  "    pm.expect(pm.response.json().inventory).to.eql({ available: 4998, reserved: 0, pendingConfirmation: 0, sold: 2, complimentary: 0 });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{eventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{eventId}}"
+              ]
+            },
+            "description": "The inventory of the event shows the 2 tickets as sold, not reserved."
+          },
+          "response": [
+            {
+              "name": "Retrieve event - after the sale",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{eventId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{eventId}}"
+                  ]
+                },
+                "description": "The inventory of the event shows the 2 tickets as sold, not reserved."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"2026-11-09T01:00:00Z\",\n  \"finishesAt\": \"2026-11-09T04:00:00Z\",\n  \"capacity\": 5000,\n  \"inventory\": {\n    \"available\": 4998,\n    \"reserved\": 0,\n    \"pendingConfirmation\": 0,\n    \"sold\": 2,\n    \"complimentary\": 0\n  },\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Confirm order - another customer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 404 so the order is not revealed', () => pm.response.to.have.status(404));",
+                  "pm.test('returns code ORDER_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "someone-else"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "confirm"
+              ]
+            },
+            "description": "Another customer tries to confirm the order. The API answers as if it did not exist."
+          },
+          "response": [
+            {
+              "name": "Confirm order - another customer",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "someone-else"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "confirm"
+                  ]
+                },
+                "description": "Another customer tries to confirm the order. The API answers as if it did not exist."
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"no order found with id 6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"instance\": \"/api/v1/orders/6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f/confirm\",\n  \"status\": 404,\n  \"title\": \"Not Found\",\n  \"code\": \"ORDER_NOT_FOUND\"\n}"
             }
           ]
         },
@@ -1806,8 +2114,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// Gives the queue consumer time to process the order",
-                  "setTimeout(() => {}, 3000);"
+                  "// Waits a moment before each attempt, so the queue consumer can process the order",
+                  "setTimeout(() => {}, 1000);"
                 ]
               }
             },
@@ -1816,13 +2124,22 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "// The consumer processes the order asynchronously: repeat this request while the order is still queued.",
+            "// 30 attempts cover the 15 s visibility timeout of a message taken by a consumer that stopped",
                   "const order = pm.response.json();",
-                  "pm.test('the consumer rejected the order because the tickets are sold out', () => {",
-                  "    pm.expect(order.status).to.eql('REJECTED');",
-                  "    pm.expect(order.rejectionReason).to.eql('SOLD_OUT');",
-                  "    pm.expect(order).to.not.have.property('expiresAt');",
-                  "});"
+                  "const attempts = Number(pm.collectionVariables.get('pollAttempts') || 0);",
+                  "if (order.status === 'QUEUED' && attempts < 30) {",
+                  "    pm.collectionVariables.set('pollAttempts', attempts + 1);",
+                  "    postman.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset('pollAttempts');",
+                  "    pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('the consumer rejected the order because the tickets are sold out', () => {",
+                  "        pm.expect(order.status).to.eql('REJECTED');",
+                  "        pm.expect(order.rejectionReason).to.eql('SOLD_OUT');",
+                  "        pm.expect(order).to.not.have.property('expiresAt');",
+                  "    });",
+                  "}"
                 ]
               }
             }
@@ -1884,6 +2201,82 @@
                 }
               ],
               "body": "{\n  \"id\": \"1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a\",\n  \"eventId\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"REJECTED\",\n  \"rejectionReason\": \"SOLD_OUT\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Confirm order - rejected",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 409', () => pm.response.to.have.status(409));",
+                  "pm.test('returns code ORDER_NOT_RESERVED', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_RESERVED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{soldOutOrderId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{soldOutOrderId}}",
+                "confirm"
+              ]
+            },
+            "description": "A rejected order has no tickets to sell, so it cannot be confirmed."
+          },
+          "response": [
+            {
+              "name": "Confirm order - rejected",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{soldOutOrderId}}/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{soldOutOrderId}}",
+                    "confirm"
+                  ]
+                },
+                "description": "A rejected order has no tickets to sell, so it cannot be confirmed."
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"order 1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a cannot be confirmed because it is REJECTED\",\n  \"instance\": \"/api/v1/orders/1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a/confirm\",\n  \"status\": 409,\n  \"title\": \"Conflict\",\n  \"code\": \"ORDER_NOT_RESERVED\"\n}"
             }
           ]
         }

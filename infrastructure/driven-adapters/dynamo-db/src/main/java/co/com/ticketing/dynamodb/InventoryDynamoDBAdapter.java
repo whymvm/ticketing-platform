@@ -9,6 +9,7 @@ import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.OrderStatus;
 import co.com.ticketing.model.order.ReservedOrder;
+import co.com.ticketing.model.order.SoldOrder;
 import co.com.ticketing.model.order.gateways.InventoryUpdater;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
@@ -41,7 +42,9 @@ public class InventoryDynamoDBAdapter implements InventoryUpdater {
     private static final String CONDITIONAL_CHECK_FAILED = "ConditionalCheckFailed";
     private static final String TRANSACTION_CONFLICT = "TransactionConflict";
 
-    private static final Map<String, String> COUNTER_NAMES = Map.of("#available", "available", "#reserved", "reserved");
+    private static final Map<String, String> AVAILABLE_AND_RESERVED =
+            Map.of("#available", "available", "#reserved", "reserved");
+    private static final Map<String, String> RESERVED_AND_SOLD = Map.of("#reserved", "reserved", "#sold", "sold");
 
     private final DynamoDbAsyncClient client;
     private final DynamoDBProperties.Tables tables;
@@ -65,8 +68,16 @@ public class InventoryDynamoDBAdapter implements InventoryUpdater {
         OrderDetails details = order.details();
         return transaction(returnTickets(details), markExpired(order))
                 .onErrorMap(TransactionCanceledException.class, error -> cancellationCause(error, details,
-                        () -> new InconsistentInventoryException("event " + details.eventId()
-                                + " has fewer than " + details.quantity() + " reserved tickets")))
+                        () -> fewerReservedTickets(details)))
+                .thenReturn(order);
+    }
+
+    @Override
+    public Mono<SoldOrder> sellTickets(SoldOrder order) {
+        OrderDetails details = order.details();
+        return transaction(sellReservedTickets(details), markSold(order))
+                .onErrorMap(TransactionCanceledException.class, error -> cancellationCause(error, details,
+                        () -> fewerReservedTickets(details)))
                 .thenReturn(order);
     }
 
@@ -79,25 +90,33 @@ public class InventoryDynamoDBAdapter implements InventoryUpdater {
 
     // Partial update of the event: only its counters change, and only if there are enough tickets
     private TransactWriteItem holdTickets(OrderDetails details) {
-        return eventUpdate(details,
+        return eventUpdate(details, AVAILABLE_AND_RESERVED,
                 "SET #available = #available - :quantity, #reserved = #reserved + :quantity",
                 "#available >= :quantity");
     }
 
     // Partial update of the event: the tickets go back to available, and never below zero reserved tickets
     private TransactWriteItem returnTickets(OrderDetails details) {
-        return eventUpdate(details,
+        return eventUpdate(details, AVAILABLE_AND_RESERVED,
                 "SET #available = #available + :quantity, #reserved = #reserved - :quantity",
                 "#reserved >= :quantity");
     }
 
-    private TransactWriteItem eventUpdate(OrderDetails details, String updateExpression, String condition) {
+    // Partial update of the event: the reserved tickets become sold
+    private TransactWriteItem sellReservedTickets(OrderDetails details) {
+        return eventUpdate(details, RESERVED_AND_SOLD,
+                "SET #reserved = #reserved - :quantity, #sold = #sold + :quantity",
+                "#reserved >= :quantity");
+    }
+
+    private TransactWriteItem eventUpdate(OrderDetails details, Map<String, String> counters, String updateExpression,
+                                          String condition) {
         return TransactWriteItem.builder().update(Update.builder()
                         .tableName(tables.events())
                         .key(Map.of("id", AttributeValue.fromS(details.eventId())))
                         .updateExpression(updateExpression)
                         .conditionExpression(condition)
-                        .expressionAttributeNames(COUNTER_NAMES)
+                        .expressionAttributeNames(counters)
                         .expressionAttributeValues(Map.of(":quantity",
                                 AttributeValue.fromN(String.valueOf(details.quantity()))))
                         .build())
@@ -123,19 +142,32 @@ public class InventoryDynamoDBAdapter implements InventoryUpdater {
                 .build();
     }
 
-    // Partial update of the order: its status changes and it leaves the expiring orders index
     private TransactWriteItem markExpired(ExpiredOrder order) {
+        return leaveReservation(order.details(), OrderStatus.EXPIRED);
+    }
+
+    private TransactWriteItem markSold(SoldOrder order) {
+        return leaveReservation(order.details(), OrderStatus.SOLD);
+    }
+
+    // Partial update of a reserved order: its status changes and it leaves the expiring orders index
+    private TransactWriteItem leaveReservation(OrderDetails details, OrderStatus newStatus) {
         return TransactWriteItem.builder().update(Update.builder()
                         .tableName(tables.orders())
-                        .key(Map.of("id", AttributeValue.fromS(order.details().id())))
-                        .updateExpression("SET #status = :expired REMOVE #expiryShard")
+                        .key(Map.of("id", AttributeValue.fromS(details.id())))
+                        .updateExpression("SET #status = :newStatus REMOVE #expiryShard")
                         .conditionExpression("#status = :reserved")
                         .expressionAttributeNames(Map.of(STATUS_NAME, "status", "#expiryShard", "expiryShard"))
                         .expressionAttributeValues(Map.of(
-                                ":expired", AttributeValue.fromS(OrderStatus.EXPIRED.name()),
+                                ":newStatus", AttributeValue.fromS(newStatus.name()),
                                 ":reserved", AttributeValue.fromS(OrderStatus.RESERVED.name())))
                         .build())
                 .build();
+    }
+
+    private static InconsistentInventoryException fewerReservedTickets(OrderDetails details) {
+        return new InconsistentInventoryException("event " + details.eventId()
+                + " has fewer than " + details.quantity() + " reserved tickets");
     }
 
     // The order check goes first: if the order was already processed, the event counters do not matter

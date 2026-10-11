@@ -1,5 +1,6 @@
 package co.com.ticketing.model.order;
 
+import co.com.ticketing.model.exception.ReservationExpiredException;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -55,6 +56,23 @@ class OrderTest {
 
         assertThat(expired.details()).isEqualTo(DETAILS);
         assertThat(expired.status()).isEqualTo(OrderStatus.EXPIRED);
+    }
+
+    @Test
+    void confirmSellsAReservationThatIsStillValid() {
+        SoldOrder sold = QUEUED.reserve(NOW, Duration.ofMinutes(10)).confirm(NOW.plus(Duration.ofMinutes(9)));
+
+        assertThat(sold.details()).isEqualTo(DETAILS);
+        assertThat(sold.status()).isEqualTo(OrderStatus.SOLD);
+    }
+
+    @Test
+    void confirmRejectsAnExpiredReservationEvenBeforeItsTicketsAreReleased() {
+        ReservedOrder reserved = QUEUED.reserve(NOW, Duration.ofMinutes(10));
+
+        assertThatThrownBy(() -> reserved.confirm(NOW.plus(Duration.ofMinutes(10))))
+                .isInstanceOf(ReservationExpiredException.class)
+                .hasMessage("the reservation of order o-1 has expired");
     }
 
     @Test
