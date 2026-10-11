@@ -2,6 +2,7 @@ package co.com.ticketing.dynamodb;
 
 import co.com.ticketing.dynamodb.config.DynamoDBProperties;
 import co.com.ticketing.model.exception.OrderAlreadyExistsException;
+import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectionReason;
@@ -19,7 +20,11 @@ import software.amazon.awssdk.enhanced.dynamodb.Expression;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
+import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
+import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.UpdateItemResponse;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -44,6 +49,9 @@ class OrderDynamoDBAdapterTest {
     private DynamoDbEnhancedAsyncClient client;
 
     @Mock
+    private DynamoDbAsyncClient lowLevelClient;
+
+    @Mock
     private DynamoDbAsyncTable<OrderEntity> table;
 
     private OrderDynamoDBAdapter adapter;
@@ -52,7 +60,7 @@ class OrderDynamoDBAdapterTest {
     @SuppressWarnings("unchecked")
     void setUp() {
         when(client.table(eq(TABLE), any(TableSchema.class))).thenReturn(table);
-        adapter = new OrderDynamoDBAdapter(client,
+        adapter = new OrderDynamoDBAdapter(client, lowLevelClient,
                 new DynamoDBProperties("us-east-1", null, new DynamoDBProperties.Tables("events", TABLE)));
     }
 
@@ -155,6 +163,39 @@ class OrderDynamoDBAdapterTest {
         when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(null));
 
         StepVerifier.create(adapter.findById("missing")).verifyComplete();
+    }
+
+    @Test
+    void markRejectedOnlyUpdatesTheStatusAndReasonOfAQueuedOrder() {
+        when(lowLevelClient.updateItem(any(UpdateItemRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(UpdateItemResponse.builder().build()));
+        var rejected = ORDER.reject(RejectionReason.SOLD_OUT);
+
+        StepVerifier.create(adapter.markRejected(rejected))
+                .expectNext(rejected)
+                .verifyComplete();
+
+        ArgumentCaptor<UpdateItemRequest> captor = ArgumentCaptor.forClass(UpdateItemRequest.class);
+        verify(lowLevelClient).updateItem(captor.capture());
+        UpdateItemRequest request = captor.getValue();
+        assertThat(request.tableName()).isEqualTo(TABLE);
+        assertThat(request.key()).containsEntry("id", AttributeValue.fromS("o-1"));
+        assertThat(request.updateExpression()).isEqualTo("SET #status = :rejected, #rejectionReason = :rejectionReason");
+        assertThat(request.conditionExpression()).isEqualTo("#status = :queued");
+        assertThat(request.expressionAttributeValues())
+                .containsEntry(":rejected", AttributeValue.fromS("REJECTED"))
+                .containsEntry(":queued", AttributeValue.fromS("QUEUED"))
+                .containsEntry(":rejectionReason", AttributeValue.fromS("SOLD_OUT"));
+    }
+
+    @Test
+    void markRejectedFailsWithOrderAlreadyProcessedWhenTheOrderIsNoLongerQueued() {
+        when(lowLevelClient.updateItem(any(UpdateItemRequest.class)))
+                .thenReturn(CompletableFuture.failedFuture(conditionalCheckFailed()));
+
+        StepVerifier.create(adapter.markRejected(ORDER.reject(RejectionReason.SOLD_OUT)))
+                .expectError(OrderAlreadyProcessedException.class)
+                .verify();
     }
 
     @SuppressWarnings("unchecked")
