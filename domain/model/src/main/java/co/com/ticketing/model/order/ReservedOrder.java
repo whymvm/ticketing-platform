@@ -31,20 +31,20 @@ public record ReservedOrder(OrderDetails details, Instant expiresAt, Instant upd
     }
 
     /**
-     * Confirms the purchase, so the reserved tickets become sold. Throws ReservationExpiredException if the
-     * reservation time is over, even when its tickets were not released yet.
+     * Confirms the purchase and starts the payment, which has its own time limit. Throws
+     * ReservationExpiredException if the reservation time is over, even when its tickets were not released yet.
      */
-    public SoldOrder confirm(Instant now) {
+    public PendingConfirmationOrder confirm(Instant now) {
         if (isExpiredAt(now)) {
             throw new ReservationExpiredException(details.id());
         }
-        return new SoldOrder(details, now);
+        return new PendingConfirmationOrder(details, now.plus(PendingConfirmationOrder.PAYMENT_TIME), now);
     }
 
     /**
      * Expires the reservation, so its tickets go back to the inventory.
      */
     public ExpiredOrder expire(Instant now) {
-        return new ExpiredOrder(details, now);
+        return new ExpiredOrder(details, ExpirationReason.RESERVATION_TIMEOUT, now);
     }
 }

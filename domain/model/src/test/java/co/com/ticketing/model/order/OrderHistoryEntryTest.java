@@ -26,8 +26,12 @@ class OrderHistoryEntryTest {
 
         assertThat(OrderHistoryEntry.of(reserved)).isEqualTo(new OrderHistoryEntry("o-1", OrderStatus.QUEUED,
                 OrderStatus.RESERVED, TransitionReason.TICKETS_RESERVED, LATER));
-        assertThat(OrderHistoryEntry.of(reserved.confirm(LATER.plusSeconds(60)))).isEqualTo(new OrderHistoryEntry(
-                "o-1", OrderStatus.RESERVED, OrderStatus.SOLD, TransitionReason.ORDER_CONFIRMED, LATER.plusSeconds(60)));
+        PendingConfirmationOrder pending = reserved.confirm(LATER.plusSeconds(60));
+        assertThat(OrderHistoryEntry.of(pending)).isEqualTo(new OrderHistoryEntry("o-1", OrderStatus.RESERVED,
+                OrderStatus.PENDING_CONFIRMATION, TransitionReason.ORDER_CONFIRMED, LATER.plusSeconds(60)));
+        assertThat(OrderHistoryEntry.of(pending.markPaid(LATER.plusSeconds(90)))).isEqualTo(new OrderHistoryEntry(
+                "o-1", OrderStatus.PENDING_CONFIRMATION, OrderStatus.SOLD, TransitionReason.PAYMENT_APPROVED,
+                LATER.plusSeconds(90)));
         assertThat(OrderHistoryEntry.of(reserved.expire(LATER.plusSeconds(600)))).isEqualTo(new OrderHistoryEntry(
                 "o-1", OrderStatus.RESERVED, OrderStatus.EXPIRED, TransitionReason.RESERVATION_EXPIRED,
                 LATER.plusSeconds(600)));
@@ -41,6 +45,19 @@ class OrderHistoryEntryTest {
                 .isEqualTo(TransitionReason.EVENT_CLOSED);
         assertThat(OrderHistoryEntry.of(QUEUED.reject(RejectionReason.SOLD_OUT, LATER)).fromStatus())
                 .isEqualTo(OrderStatus.QUEUED);
+    }
+
+    @Test
+    void theReasonOfARejectionOrExpirationTellsTheStateItCameFrom() {
+        PendingConfirmationOrder pending = QUEUED.reserve(LATER, Duration.ofMinutes(10)).confirm(LATER);
+
+        OrderHistoryEntry declined = OrderHistoryEntry.of(pending.declinePayment(LATER.plusSeconds(1)));
+        assertThat(declined.fromStatus()).isEqualTo(OrderStatus.PENDING_CONFIRMATION);
+        assertThat(declined.reason()).isEqualTo(TransitionReason.PAYMENT_DECLINED);
+
+        OrderHistoryEntry paymentTimeout = OrderHistoryEntry.of(pending.expire(LATER.plusSeconds(300)));
+        assertThat(paymentTimeout.fromStatus()).isEqualTo(OrderStatus.PENDING_CONFIRMATION);
+        assertThat(paymentTimeout.reason()).isEqualTo(TransitionReason.PAYMENT_TIMEOUT);
     }
 
     @Test

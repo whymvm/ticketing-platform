@@ -2,8 +2,10 @@ package co.com.ticketing.usecase.releaseexpiredreservations;
 
 import co.com.ticketing.model.exception.ConcurrencyConflictException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
+import co.com.ticketing.model.order.ExpirationReason;
 import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.OrderDetails;
+import co.com.ticketing.model.order.PendingConfirmationOrder;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.ReservedOrder;
 import co.com.ticketing.model.order.gateways.InventoryUpdater;
@@ -22,7 +24,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -51,7 +55,7 @@ class ReleaseExpiredReservationsUseCaseTest {
     @Test
     void releasesTheTicketsOfEachExpiredReservation() {
         ExpiredOrder expired = EXPIRED_RESERVATION.expire(NOW);
-        when(orderRetriever.findExpiredReservations(NOW)).thenReturn(Flux.just(EXPIRED_RESERVATION));
+        when(orderRetriever.findOrdersPastDeadline(NOW)).thenReturn(Flux.just(EXPIRED_RESERVATION));
         when(inventoryUpdater.releaseTickets(expired)).thenReturn(Mono.just(expired));
 
         StepVerifier.create(useCase.run())
@@ -60,8 +64,67 @@ class ReleaseExpiredReservationsUseCaseTest {
     }
 
     @Test
+    void releasesThePaymentHoldOfAnOrderWhosePaymentDidNotArriveInTime() {
+        PendingConfirmationOrder pending = reserved("o-9", NOW.minus(Duration.ofMinutes(8)))
+                .confirm(NOW.minus(Duration.ofMinutes(6)));
+        ExpiredOrder expired = pending.expire(NOW);
+        when(orderRetriever.findOrdersPastDeadline(NOW)).thenReturn(Flux.just(pending));
+        when(inventoryUpdater.releaseTickets(expired)).thenReturn(Mono.just(expired));
+
+        StepVerifier.create(useCase.run())
+                .assertNext(order -> assertThat(order.expirationReason()).isEqualTo(ExpirationReason.PAYMENT_TIMEOUT))
+                .verifyComplete();
+    }
+
+    @Test
+    void skipsAPaymentHoldThatIsNotExpiredYet() {
+        PendingConfirmationOrder pending = reserved("o-9", NOW.minus(Duration.ofMinutes(3)))
+                .confirm(NOW.minus(Duration.ofMinutes(2)));
+        when(orderRetriever.findOrdersPastDeadline(NOW)).thenReturn(Flux.just(pending));
+
+        StepVerifier.create(useCase.run()).verifyComplete();
+
+        verifyNoInteractions(inventoryUpdater);
+    }
+
+    @Test
+    void skipsAnOrderThatNoLongerHoldsTickets() {
+        when(orderRetriever.findOrdersPastDeadline(NOW))
+                .thenReturn(Flux.just(EXPIRED_RESERVATION.expire(NOW.minusSeconds(5))));
+
+        StepVerifier.create(useCase.run()).verifyComplete();
+
+        verifyNoInteractions(inventoryUpdater);
+    }
+
+    // Spring subscribes to the same Publisher on every scheduled run, so each subscription must read the clock again
+    @Test
+    void readsTheClockAgainOnEverySubscription() {
+        Instant later = NOW.plus(Duration.ofMinutes(1));
+        Clock advancing = mock(Clock.class);
+        when(advancing.instant()).thenReturn(NOW, later);
+        when(orderRetriever.findOrdersPastDeadline(any(Instant.class))).thenReturn(Flux.empty());
+        Flux<ExpiredOrder> run = new ReleaseExpiredReservationsUseCase(orderRetriever, inventoryUpdater, advancing).run();
+
+        StepVerifier.create(run).verifyComplete();
+        StepVerifier.create(run).verifyComplete();
+
+        verify(orderRetriever).findOrdersPastDeadline(NOW);
+        verify(orderRetriever).findOrdersPastDeadline(later);
+    }
+
+    @Test
+    void doesNotReadTheClockUntilSubscribed() {
+        Clock clock = mock(Clock.class);
+
+        new ReleaseExpiredReservationsUseCase(orderRetriever, inventoryUpdater, clock).run();
+
+        verifyNoInteractions(clock, orderRetriever);
+    }
+
+    @Test
     void skipsAReservationThatIsNotExpiredYet() {
-        when(orderRetriever.findExpiredReservations(NOW)).thenReturn(Flux.just(LIVE_RESERVATION));
+        when(orderRetriever.findOrdersPastDeadline(NOW)).thenReturn(Flux.just(LIVE_RESERVATION));
 
         StepVerifier.create(useCase.run()).verifyComplete();
 
@@ -72,7 +135,7 @@ class ReleaseExpiredReservationsUseCaseTest {
     void skipsOrdersThatAnotherProcessChangedAndKeepsGoing() {
         ReservedOrder other = reserved("o-3", NOW.minus(Duration.ofMinutes(20)));
         ReservedOrder conflicted = reserved("o-4", NOW.minus(Duration.ofMinutes(20)));
-        when(orderRetriever.findExpiredReservations(NOW))
+        when(orderRetriever.findOrdersPastDeadline(NOW))
                 .thenReturn(Flux.just(EXPIRED_RESERVATION, other, conflicted));
         when(inventoryUpdater.releaseTickets(any(ExpiredOrder.class))).thenAnswer(invocation -> {
             ExpiredOrder order = invocation.getArgument(0);
@@ -90,7 +153,7 @@ class ReleaseExpiredReservationsUseCaseTest {
 
     @Test
     void propagatesOtherErrors() {
-        when(orderRetriever.findExpiredReservations(NOW)).thenReturn(Flux.just(EXPIRED_RESERVATION));
+        when(orderRetriever.findOrdersPastDeadline(NOW)).thenReturn(Flux.just(EXPIRED_RESERVATION));
         when(inventoryUpdater.releaseTickets(any(ExpiredOrder.class)))
                 .thenReturn(Mono.error(new IllegalStateException("dynamo down")));
 

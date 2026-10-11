@@ -7,6 +7,7 @@ import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.order.IdempotencyRecord;
 import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.OrderStatus;
+import co.com.ticketing.model.order.PendingConfirmationOrder;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectedOrder;
 import co.com.ticketing.model.order.ReservedOrder;
@@ -88,13 +89,13 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
     // Reads every shard of the sparse index in parallel. Expiration instants are stored as ISO-8601 text, so they
     // compare in time order with a margin of less than one second; the use case checks the exact instant
     @Override
-    public Flux<ReservedOrder> findExpiredReservations(Instant now) {
+    public Flux<Order> findOrdersPastDeadline(Instant now) {
         return Flux.fromIterable(ExpiringOrdersIndex.shards())
                 .flatMap(shard -> Flux.from(expiringOrders.query(QueryConditional.sortLessThanOrEqualTo(
                         Key.builder().partitionValue(shard).sortValue(now.toString()).build()))))
                 .flatMapIterable(Page::items)
                 .map(OrderEntity::toDomain)
-                .ofType(ReservedOrder.class);
+                .filter(order -> order instanceof ReservedOrder || order instanceof PendingConfirmationOrder);
     }
 
     @Override

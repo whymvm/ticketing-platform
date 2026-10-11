@@ -2,8 +2,10 @@ package co.com.ticketing.api;
 
 import co.com.ticketing.model.order.NewOrder;
 import co.com.ticketing.model.order.Order;
+import co.com.ticketing.model.order.PaymentNotification;
 import co.com.ticketing.usecase.confirmorder.ConfirmOrderUseCase;
 import co.com.ticketing.usecase.placeorder.PlaceOrderUseCase;
+import co.com.ticketing.usecase.recordpayment.RecordPaymentUseCase;
 import co.com.ticketing.usecase.retrieveorder.RetrieveOrderUseCase;
 import co.com.ticketing.usecase.retrieveorderhistory.RetrieveOrderHistoryUseCase;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,7 @@ public class OrderHandler {
     private final RetrieveOrderUseCase retrieveOrderUseCase;
     private final ConfirmOrderUseCase confirmOrderUseCase;
     private final RetrieveOrderHistoryUseCase retrieveOrderHistoryUseCase;
+    private final RecordPaymentUseCase recordPaymentUseCase;
 
     /**
      * Places an order and answers 202 Accepted: its tickets are reserved later, asynchronously. A retry with the
@@ -55,10 +58,25 @@ public class OrderHandler {
     }
 
     /**
-     * Confirms the purchase of a reserved order of the customer and returns the sold order.
+     * Confirms a reserved order of the customer and answers 202 Accepted: the order waits for its payment, which
+     * the payment provider notifies later.
      */
     public Mono<ServerResponse> confirmOrder(ServerRequest request) {
         return confirmOrderUseCase.run(request.pathVariable(ApiPaths.ORDER_ID), customerId(request))
+                .flatMap(order -> ServerResponse.accepted()
+                        .location(locationOf(order))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(OrderResponse.from(order)));
+    }
+
+    /**
+     * Receives the notification of the payment provider (a webhook) and returns the order with the result.
+     */
+    public Mono<ServerResponse> recordPayment(ServerRequest request) {
+        return request.bodyToMono(PaymentNotification.class)
+                .switchIfEmpty(Mono.error(MissingRequestBodyException::new))
+                .flatMap(notification -> recordPaymentUseCase.run(request.pathVariable(ApiPaths.ORDER_ID),
+                        notification))
                 .flatMap(order -> ServerResponse.ok()
                         .contentType(MediaType.APPLICATION_JSON)
                         .bodyValue(OrderResponse.from(order)));

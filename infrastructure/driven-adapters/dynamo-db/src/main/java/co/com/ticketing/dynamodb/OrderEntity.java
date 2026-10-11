@@ -1,9 +1,11 @@
 package co.com.ticketing.dynamodb;
 
+import co.com.ticketing.model.order.ExpirationReason;
 import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.OrderStatus;
+import co.com.ticketing.model.order.PendingConfirmationOrder;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectedOrder;
 import co.com.ticketing.model.order.RejectionReason;
@@ -40,6 +42,7 @@ public class OrderEntity {
     @Getter(onMethod_ = @DynamoDbSecondaryPartitionKey(indexNames = ExpiringOrdersIndex.NAME))
     private String expiryShard;
     private String rejectionReason;
+    private String expirationReason;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -69,9 +72,16 @@ public class OrderEntity {
         return switch (OrderStatus.valueOf(status)) {
             case QUEUED -> new QueuedOrder(details);
             case RESERVED -> new ReservedOrder(details, expiresAt, changedAt);
+            case PENDING_CONFIRMATION -> new PendingConfirmationOrder(details, expiresAt, changedAt);
             case REJECTED -> new RejectedOrder(details, RejectionReason.valueOf(rejectionReason), changedAt);
-            case EXPIRED -> new ExpiredOrder(details, changedAt);
+            case EXPIRED -> new ExpiredOrder(details, expirationReasonOrDefault(), changedAt);
             case SOLD -> new SoldOrder(details, changedAt);
         };
+    }
+
+    // Only reservations could expire before payments existed, so an expired order without a reason missed that one
+    private ExpirationReason expirationReasonOrDefault() {
+        return Optional.ofNullable(expirationReason).map(ExpirationReason::valueOf)
+                .orElse(ExpirationReason.RESERVATION_TIMEOUT);
     }
 }

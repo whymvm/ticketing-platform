@@ -1,5 +1,6 @@
 package co.com.ticketing.model.order;
 
+import co.com.ticketing.model.exception.PaymentExpiredException;
 import co.com.ticketing.model.exception.ReservationExpiredException;
 import org.junit.jupiter.api.Test;
 
@@ -56,14 +57,54 @@ class OrderTest {
 
         assertThat(expired.details()).isEqualTo(DETAILS);
         assertThat(expired.status()).isEqualTo(OrderStatus.EXPIRED);
+        assertThat(expired.expirationReason()).isEqualTo(ExpirationReason.RESERVATION_TIMEOUT);
     }
 
     @Test
-    void confirmSellsAReservationThatIsStillValid() {
-        SoldOrder sold = QUEUED.reserve(NOW, Duration.ofMinutes(10)).confirm(NOW.plus(Duration.ofMinutes(9)));
+    void confirmPutsAValidReservationToWaitForItsPaymentForFiveMinutes() {
+        Instant confirmedAt = NOW.plus(Duration.ofMinutes(9));
 
-        assertThat(sold.details()).isEqualTo(DETAILS);
+        PendingConfirmationOrder pending = QUEUED.reserve(NOW, Duration.ofMinutes(10)).confirm(confirmedAt);
+
+        assertThat(pending.details()).isEqualTo(DETAILS);
+        assertThat(pending.status()).isEqualTo(OrderStatus.PENDING_CONFIRMATION);
+        assertThat(pending.expiresAt()).isEqualTo(confirmedAt.plus(Duration.ofMinutes(5)));
+        assertThat(pending.updatedAt()).isEqualTo(confirmedAt);
+    }
+
+    @Test
+    void anApprovedPaymentSellsTheTickets() {
+        SoldOrder sold = pendingSince(NOW).markPaid(NOW.plus(Duration.ofMinutes(4)));
+
         assertThat(sold.status()).isEqualTo(OrderStatus.SOLD);
+        assertThat(sold.updatedAt()).isEqualTo(NOW.plus(Duration.ofMinutes(4)));
+    }
+
+    @Test
+    void aDeclinedPaymentRejectsTheOrder() {
+        RejectedOrder rejected = pendingSince(NOW).declinePayment(NOW.plus(Duration.ofMinutes(1)));
+
+        assertThat(rejected.rejectionReason()).isEqualTo(RejectionReason.PAYMENT_DECLINED);
+    }
+
+    @Test
+    void aPaymentNotifiedAfterItsTimeIsRefusedEvenBeforeTheTicketsAreReleased() {
+        PendingConfirmationOrder pending = pendingSince(NOW);
+        Instant late = NOW.plus(PendingConfirmationOrder.PAYMENT_TIME);
+
+        assertThatThrownBy(() -> pending.markPaid(late))
+                .isInstanceOf(PaymentExpiredException.class)
+                .hasMessage("the payment time of order o-1 is over");
+        assertThatThrownBy(() -> pending.declinePayment(late)).isInstanceOf(PaymentExpiredException.class);
+        assertThat(pending.isExpiredAt(late)).isTrue();
+        assertThat(pending.isExpiredAt(late.minusSeconds(1))).isFalse();
+    }
+
+    @Test
+    void aPaymentThatNeverArrivesExpiresTheOrder() {
+        ExpiredOrder expired = pendingSince(NOW).expire(NOW.plus(Duration.ofMinutes(5)));
+
+        assertThat(expired.expirationReason()).isEqualTo(ExpirationReason.PAYMENT_TIMEOUT);
     }
 
     @Test
@@ -93,7 +134,11 @@ class OrderTest {
         assertThatThrownBy(() -> new ReservedOrder(DETAILS, NOW, null)).hasMessage("updatedAt is required");
         assertThatThrownBy(() -> new RejectedOrder(DETAILS, RejectionReason.SOLD_OUT, null))
                 .hasMessage("updatedAt is required");
-        assertThatThrownBy(() -> new ExpiredOrder(DETAILS, null)).hasMessage("updatedAt is required");
+        assertThatThrownBy(() -> new ExpiredOrder(DETAILS, ExpirationReason.RESERVATION_TIMEOUT, null))
+                .hasMessage("updatedAt is required");
+        assertThatThrownBy(() -> new ExpiredOrder(DETAILS, null, NOW)).hasMessage("expirationReason is required");
+        assertThatThrownBy(() -> new PendingConfirmationOrder(DETAILS, NOW, null)).hasMessage("updatedAt is required");
+        assertThatThrownBy(() -> new PendingConfirmationOrder(DETAILS, null, NOW)).hasMessage("expiresAt is required");
         assertThatThrownBy(() -> new SoldOrder(DETAILS, null)).hasMessage("updatedAt is required");
     }
 
@@ -117,5 +162,9 @@ class OrderTest {
         assertThatThrownBy(() -> new RejectedOrder(DETAILS, null, NOW))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("rejectionReason is required");
+    }
+
+    private static PendingConfirmationOrder pendingSince(Instant confirmedAt) {
+        return QUEUED.reserve(confirmedAt, Duration.ofMinutes(10)).confirm(confirmedAt);
     }
 }
