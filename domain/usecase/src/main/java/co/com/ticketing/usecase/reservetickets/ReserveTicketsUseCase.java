@@ -1,6 +1,8 @@
 package co.com.ticketing.usecase.reservetickets;
 
+import co.com.ticketing.model.event.gateways.EventRetriever;
 import co.com.ticketing.model.exception.ConcurrencyConflictException;
+import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.exception.OrderNotFoundException;
 import co.com.ticketing.model.exception.TicketsSoldOutException;
@@ -20,6 +22,7 @@ import reactor.util.retry.Retry;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 
 @RequiredArgsConstructor
 public class ReserveTicketsUseCase {
@@ -28,19 +31,20 @@ public class ReserveTicketsUseCase {
     static final Duration FIRST_RETRY_DELAY = Duration.ofMillis(50);
 
     private final OrderRetriever orderRetriever;
+    private final EventRetriever eventRetriever;
     private final InventoryUpdater inventoryUpdater;
     private final OrderStatusUpdater orderStatusUpdater;
     private final Clock clock;
 
     /**
-     * Reserves the tickets of a queued order, or rejects it if there are not enough tickets.
-     * An order that is no longer queued is ignored, so a repeated message has no effect.
+     * Reserves the tickets of a queued order, or rejects it if its event already started or there are not
+     * enough tickets. An order that is no longer queued is ignored, so a repeated message has no effect.
      */
     public Mono<Void> run(String orderId) {
         return orderRetriever.findById(orderId)
                 .switchIfEmpty(Mono.error(() -> new OrderNotFoundException(orderId)))
                 .flatMap(this::process)
-                .onErrorResume(OrderAlreadyProcessedException.class, error -> Mono.empty());
+                .onErrorResume(OrderAlreadyProcessedException.class, _ -> Mono.empty());
     }
 
     private Mono<Void> process(Order order) {
@@ -50,17 +54,27 @@ public class ReserveTicketsUseCase {
         };
     }
 
+    // The queue may be behind, so the event may have started since the order was placed
     private Mono<Void> reserve(QueuedOrder order) {
-        return Mono.defer(() -> inventoryUpdater.reserveTickets(
-                        order.reserve(clock.instant(), ReservedOrder.RESERVATION_TIME)))
-                .retryWhen(Retry.backoff(MAX_RETRIES, FIRST_RETRY_DELAY)
-                        .filter(ConcurrencyConflictException.class::isInstance)
-                        .onRetryExhaustedThrow((spec, signal) -> signal.failure()))
-                .then()
-                .onErrorResume(TicketsSoldOutException.class, error -> reject(order));
+        String eventId = order.details().eventId();
+        Instant now = clock.instant();
+        return eventRetriever.findById(eventId)
+                .switchIfEmpty(Mono.error(() -> new EventNotFoundException(eventId)))
+                .flatMap(event -> event.isOpenAt(now)
+                        ? holdTickets(order, now)
+                        : reject(order, RejectionReason.EVENT_CLOSED));
     }
 
-    private Mono<Void> reject(QueuedOrder order) {
-        return orderStatusUpdater.markRejected(order.reject(RejectionReason.SOLD_OUT)).then();
+    private Mono<Void> holdTickets(QueuedOrder order, Instant now) {
+        return Mono.defer(() -> inventoryUpdater.reserveTickets(order.reserve(now, ReservedOrder.RESERVATION_TIME)))
+                .retryWhen(Retry.backoff(MAX_RETRIES, FIRST_RETRY_DELAY)
+                        .filter(ConcurrencyConflictException.class::isInstance)
+                        .onRetryExhaustedThrow((_, signal) -> signal.failure()))
+                .then()
+                .onErrorResume(TicketsSoldOutException.class, _ -> reject(order, RejectionReason.SOLD_OUT));
+    }
+
+    private Mono<Void> reject(QueuedOrder order, RejectionReason reason) {
+        return orderStatusUpdater.markRejected(order.reject(reason)).then();
     }
 }

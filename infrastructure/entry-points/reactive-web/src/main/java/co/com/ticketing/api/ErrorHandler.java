@@ -1,6 +1,7 @@
 package co.com.ticketing.api;
 
 import co.com.ticketing.model.exception.ConcurrencyConflictException;
+import co.com.ticketing.model.exception.EventClosedException;
 import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.exception.EventStartsInThePastException;
 import co.com.ticketing.model.exception.InvalidCustomerException;
@@ -45,6 +46,7 @@ public class ErrorHandler {
                     problem(ErrorCode.EVENT_STARTS_IN_THE_PAST, e.getMessage(), request);
             case InvalidEventCapacityException e -> problem(ErrorCode.INVALID_EVENT_CAPACITY, e.getMessage(), request);
             case EventNotFoundException e -> problem(ErrorCode.EVENT_NOT_FOUND, e.getMessage(), request);
+            case EventClosedException e -> problem(ErrorCode.EVENT_CLOSED, e.getMessage(), request);
             case InvalidOrderQuantityException e -> problem(ErrorCode.INVALID_ORDER_QUANTITY, e.getMessage(), request);
             case InvalidOrderEventException e -> problem(ErrorCode.INVALID_ORDER_EVENT, e.getMessage(), request);
             case InvalidCustomerException e -> problem(ErrorCode.INVALID_CUSTOMER, e.getMessage(), request);

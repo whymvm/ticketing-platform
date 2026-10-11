@@ -49,6 +49,16 @@ class EventTest {
     }
 
     @Test
+    void salesAreOpenOnlyUntilTheEventStarts() {
+        Event event = new Event("e-1", "Concert", "Arena", STARTS_AT, FINISHES_AT, 5000,
+                Inventory.initial(5000), NOW);
+
+        assertThat(event.isOpenAt(STARTS_AT.minusSeconds(1))).isTrue();
+        assertThat(event.isOpenAt(STARTS_AT)).isFalse();
+        assertThat(event.isOpenAt(FINISHES_AT)).isFalse();
+    }
+
+    @Test
     void storedEventsAlsoEnforceTheInvariants() {
         assertThatThrownBy(() -> new Event("e-1", " ", "Arena", STARTS_AT, FINISHES_AT, 10, Inventory.initial(10), NOW))
                 .isInstanceOf(InvalidEventNameException.class);
