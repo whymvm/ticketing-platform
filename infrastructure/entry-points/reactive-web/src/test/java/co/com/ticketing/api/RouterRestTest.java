@@ -2,6 +2,7 @@ package co.com.ticketing.api;
 
 import co.com.ticketing.model.event.Event;
 import co.com.ticketing.model.event.Inventory;
+import co.com.ticketing.model.exception.ConcurrencyConflictException;
 import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.exception.EventStartsInThePastException;
 import co.com.ticketing.model.exception.InvalidEventCapacityException;
@@ -12,12 +13,16 @@ import co.com.ticketing.model.exception.InvalidCustomerException;
 import co.com.ticketing.model.exception.InvalidOrderEventException;
 import co.com.ticketing.model.exception.InvalidOrderQuantityException;
 import co.com.ticketing.model.exception.OrderNotFoundException;
+import co.com.ticketing.model.exception.OrderNotReservedException;
+import co.com.ticketing.model.exception.ReservationExpiredException;
+import co.com.ticketing.model.order.OrderStatus;
 import co.com.ticketing.model.order.NewOrder;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectionReason;
 import co.com.ticketing.model.event.NewEvent;
 import co.com.ticketing.usecase.createevent.CreateEventUseCase;
+import co.com.ticketing.usecase.confirmorder.ConfirmOrderUseCase;
 import co.com.ticketing.usecase.placeorder.PlaceOrderUseCase;
 import co.com.ticketing.usecase.retrieveorder.RetrieveOrderUseCase;
 import co.com.ticketing.usecase.retrieveevent.RetrieveEventUseCase;
@@ -33,6 +38,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.stream.Stream;
 
@@ -64,6 +70,9 @@ class RouterRestTest {
 
     @MockitoBean
     private RetrieveOrderUseCase retrieveOrderUseCase;
+
+    @MockitoBean
+    private ConfirmOrderUseCase confirmOrderUseCase;
 
     @Test
     void createEventReturns201WithLocationAndBody() {
@@ -274,6 +283,44 @@ class RouterRestTest {
                 .jsonPath("$.code").isEqualTo("ORDER_NOT_FOUND")
                 .jsonPath("$.detail").isEqualTo("no order found with id o-9")
                 .jsonPath("$.instance").isEqualTo("/api/v1/orders/o-9");
+    }
+
+    @Test
+    void confirmOrderReturns200WithTheSoldOrder() {
+        var sold = QUEUED_ORDER.reserve(Instant.parse("2026-10-10T12:00:00Z"), Duration.ofMinutes(10))
+                .confirm(Instant.parse("2026-10-10T12:05:00Z"));
+        when(confirmOrderUseCase.run("o-1", "c-1")).thenReturn(Mono.just(sold));
+
+        webTestClient.post()
+                .uri("/api/v1/orders/o-1/confirm")
+                .header("X-Customer-Id", "c-1")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.id").isEqualTo("o-1")
+                .jsonPath("$.status").isEqualTo("SOLD")
+                .jsonPath("$.expiresAt").doesNotExist();
+    }
+
+    static Stream<Arguments> confirmationConflicts() {
+        return Stream.of(
+                Arguments.of(new ReservationExpiredException("o-1"), "RESERVATION_EXPIRED"),
+                Arguments.of(new OrderNotReservedException("o-1", OrderStatus.REJECTED), "ORDER_NOT_RESERVED"),
+                Arguments.of(new ConcurrencyConflictException("o-1"), "CONCURRENCY_CONFLICT"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("confirmationConflicts")
+    void confirmOrderMapsEachConflictToItsOwnCode(RuntimeException error, String expectedCode) {
+        when(confirmOrderUseCase.run("o-1", "local-customer")).thenReturn(Mono.error(error));
+
+        webTestClient.post()
+                .uri("/api/v1/orders/o-1/confirm")
+                .exchange()
+                .expectStatus().isEqualTo(409)
+                .expectBody()
+                .jsonPath("$.code").isEqualTo(expectedCode)
+                .jsonPath("$.detail").isEqualTo(error.getMessage());
     }
 
     @Test

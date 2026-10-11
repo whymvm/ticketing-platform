@@ -2,6 +2,7 @@ package co.com.ticketing.model.order.gateways;
 
 import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.ReservedOrder;
+import co.com.ticketing.model.order.SoldOrder;
 import reactor.core.publisher.Mono;
 
 /**
@@ -29,5 +30,15 @@ public interface InventoryUpdater {
      * @return the expired order
      */
     Mono<ExpiredOrder> releaseTickets(ExpiredOrder order);
+
+    /**
+     * Moves the tickets of the order from reserved to sold and marks the order as sold, in one atomic write.
+     * Emits OrderAlreadyProcessedException if the order is no longer reserved, or ConcurrencyConflictException
+     * if a concurrent write got in the way.
+     *
+     * @param order the sold order
+     * @return the sold order
+     */
+    Mono<SoldOrder> sellTickets(SoldOrder order);
 
 }

@@ -36,6 +36,12 @@ class OrderResponseTest {
     }
 
     @Test
+    void aSoldOrderHasNoExpirationNorReason() {
+        assertThat(OrderResponse.from(QUEUED.reserve(NOW, Duration.ofMinutes(10)).confirm(NOW))).isEqualTo(
+                new OrderResponse("o-1", "e-1", "c-1", 2, OrderStatus.SOLD, null, null, NOW));
+    }
+
+    @Test
     void aRejectedOrderHasItsReason() {
         assertThat(OrderResponse.from(QUEUED.reject(RejectionReason.SOLD_OUT))).isEqualTo(
                 new OrderResponse("o-1", "e-1", "c-1", 2, OrderStatus.REJECTED, null, RejectionReason.SOLD_OUT,

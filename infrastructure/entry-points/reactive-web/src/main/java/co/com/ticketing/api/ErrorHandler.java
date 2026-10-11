@@ -1,5 +1,6 @@
 package co.com.ticketing.api;
 
+import co.com.ticketing.model.exception.ConcurrencyConflictException;
 import co.com.ticketing.model.exception.EventNotFoundException;
 import co.com.ticketing.model.exception.EventStartsInThePastException;
 import co.com.ticketing.model.exception.InvalidCustomerException;
@@ -10,6 +11,8 @@ import co.com.ticketing.model.exception.InvalidEventVenueException;
 import co.com.ticketing.model.exception.InvalidOrderEventException;
 import co.com.ticketing.model.exception.InvalidOrderQuantityException;
 import co.com.ticketing.model.exception.OrderNotFoundException;
+import co.com.ticketing.model.exception.OrderNotReservedException;
+import co.com.ticketing.model.exception.ReservationExpiredException;
 import lombok.extern.java.Log;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -46,6 +49,10 @@ public class ErrorHandler {
             case InvalidOrderEventException e -> problem(ErrorCode.INVALID_ORDER_EVENT, e.getMessage(), request);
             case InvalidCustomerException e -> problem(ErrorCode.INVALID_CUSTOMER, e.getMessage(), request);
             case OrderNotFoundException e -> problem(ErrorCode.ORDER_NOT_FOUND, e.getMessage(), request);
+            case ReservationExpiredException e -> problem(ErrorCode.RESERVATION_EXPIRED, e.getMessage(), request);
+            case OrderNotReservedException e -> problem(ErrorCode.ORDER_NOT_RESERVED, e.getMessage(), request);
+            case ConcurrencyConflictException e ->
+                    problem(ErrorCode.CONCURRENCY_CONFLICT, e.getMessage(), request);
             case MissingRequestBodyException e -> problem(ErrorCode.MISSING_REQUEST_BODY, e.getMessage(), request);
             case ServerWebInputException _ -> problem(ErrorCode.MALFORMED_REQUEST_BODY, null, request);
             // Keeps the status code of framework errors

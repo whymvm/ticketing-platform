@@ -8,6 +8,7 @@ import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectedOrder;
 import co.com.ticketing.model.order.RejectionReason;
 import co.com.ticketing.model.order.ReservedOrder;
+import co.com.ticketing.model.order.SoldOrder;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.time.Instant;
@@ -34,6 +35,7 @@ public record OrderResponse(String id,
             case ReservedOrder reserved -> of(reserved, reserved.expiresAt(), null);
             case RejectedOrder rejected -> of(rejected, null, rejected.rejectionReason());
             case ExpiredOrder expired -> of(expired, null, null);
+            case SoldOrder sold -> of(sold, null, null);
         };
     }
 

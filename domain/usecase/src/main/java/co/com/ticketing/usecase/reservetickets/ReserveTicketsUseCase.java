@@ -10,6 +10,7 @@ import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectedOrder;
 import co.com.ticketing.model.order.RejectionReason;
 import co.com.ticketing.model.order.ReservedOrder;
+import co.com.ticketing.model.order.SoldOrder;
 import co.com.ticketing.model.order.gateways.InventoryUpdater;
 import co.com.ticketing.model.order.gateways.OrderRetriever;
 import co.com.ticketing.model.order.gateways.OrderStatusUpdater;
@@ -45,7 +46,7 @@ public class ReserveTicketsUseCase {
     private Mono<Void> process(Order order) {
         return switch (order) {
             case QueuedOrder queued -> reserve(queued);
-            case ReservedOrder _, RejectedOrder _, ExpiredOrder _ -> Mono.empty();
+            case ReservedOrder _, RejectedOrder _, ExpiredOrder _, SoldOrder _ -> Mono.empty();
         };
     }
 

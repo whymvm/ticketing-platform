@@ -37,6 +37,12 @@ public class RouterRest {
                     beanClass = OrderHandler.class,
                     beanMethod = "retrieveOrder",
                     method = RequestMethod.GET
+            ),
+            @RouterOperation(
+                    path = ApiPaths.ORDER_CONFIRMATION,
+                    beanClass = OrderHandler.class,
+                    beanMethod = "confirmOrder",
+                    method = RequestMethod.POST
             )
     })
     @Bean
@@ -48,6 +54,7 @@ public class RouterRest {
                 .GET(ApiPaths.EVENT_BY_ID, eventHandler::retrieveEvent)
                 .POST(ApiPaths.ORDERS, orderHandler::placeOrder)
                 .GET(ApiPaths.ORDER_BY_ID, orderHandler::retrieveOrder)
+                .POST(ApiPaths.ORDER_CONFIRMATION, orderHandler::confirmOrder)
                 .onError(Throwable.class, errorHandler::handle)
                 .build();
     }

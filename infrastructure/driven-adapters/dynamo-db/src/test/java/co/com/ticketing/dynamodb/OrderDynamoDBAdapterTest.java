@@ -181,6 +181,17 @@ class OrderDynamoDBAdapterTest {
     }
 
     @Test
+    void findByIdRebuildsASoldOrder() {
+        OrderEntity entity = OrderEntity.from(ORDER);
+        entity.setStatus("SOLD");
+        when(table.getItem(any(Key.class))).thenReturn(CompletableFuture.completedFuture(entity));
+
+        StepVerifier.create(adapter.findById("o-1"))
+                .expectNext(ORDER.reserve(CREATED_AT, Duration.ofMinutes(10)).confirm(CREATED_AT))
+                .verifyComplete();
+    }
+
+    @Test
     void findExpiredReservationsReadsEveryShardAndKeepsOnlyReservedOrders() {
         var reserved = ORDER.reserve(CREATED_AT, Duration.ofMinutes(10));
         OrderEntity reservedEntity = OrderEntity.from(ORDER);
