@@ -14,7 +14,9 @@ import java.util.Optional;
 @Configuration
 public class SQSSenderConfig {
 
-    @Bean
+    public static final String CLIENT = "sqsSenderClient";
+
+    @Bean(CLIENT)
     public SqsAsyncClient sqsSenderClient(SQSSenderProperties properties, MetricPublisher publisher) {
         SqsAsyncClientBuilder builder = SqsAsyncClient.builder()
                 .credentialsProvider(DefaultCredentialsProvider.builder().build())

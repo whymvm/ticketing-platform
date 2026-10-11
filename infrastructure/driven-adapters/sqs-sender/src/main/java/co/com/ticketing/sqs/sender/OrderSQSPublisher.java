@@ -2,7 +2,9 @@ package co.com.ticketing.sqs.sender;
 
 import co.com.ticketing.model.order.OrderPlaced;
 import co.com.ticketing.model.order.gateways.OrderPublisher;
+import co.com.ticketing.sqs.sender.config.SQSSenderConfig;
 import co.com.ticketing.sqs.sender.config.SQSSenderProperties;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
@@ -20,7 +22,7 @@ public class OrderSQSPublisher implements OrderPublisher {
     private final SqsAsyncClient client;
     private final String queueUrl;
 
-    public OrderSQSPublisher(SqsAsyncClient client, SQSSenderProperties properties) {
+    public OrderSQSPublisher(@Qualifier(SQSSenderConfig.CLIENT) SqsAsyncClient client, SQSSenderProperties properties) {
         this.client = client;
         this.queueUrl = properties.queues().reservations();
     }

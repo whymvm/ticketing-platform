@@ -37,3 +37,11 @@ adapter:
     endpoint: ${aws.endpoint}
     queues:
       reservations: ${QUEUE_RESERVATIONS_URL:}
+entrypoint:
+  sqs:
+    region: ${aws.region}
+    endpoint: ${aws.endpoint}
+    queueUrl: ${QUEUE_RESERVATIONS_URL:}
+    waitTimeSeconds: 20 # long polling
+    maxNumberOfMessages: 10
+    numberOfThreads: 1
