@@ -53,7 +53,7 @@ class EventDynamoDBAdapterTest {
     void setUp() {
         when(client.table(eq(TABLE), any(TableSchema.class))).thenReturn(table);
         adapter = new EventDynamoDBAdapter(client,
-                new DynamoDBProperties("us-east-1", null, new DynamoDBProperties.Tables(TABLE, "local-ticketing-orders", "local-ticketing-order-history")));
+                new DynamoDBProperties("us-east-1", null, new DynamoDBProperties.Tables(TABLE, "local-ticketing-orders", "local-ticketing-order-history", "local-ticketing-idempotency")));
     }
 
     @Test

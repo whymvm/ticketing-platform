@@ -1,12 +1,13 @@
 package co.com.ticketing.api;
 
 import co.com.ticketing.model.order.NewOrder;
-import co.com.ticketing.model.order.QueuedOrder;
+import co.com.ticketing.model.order.Order;
 import co.com.ticketing.usecase.confirmorder.ConfirmOrderUseCase;
 import co.com.ticketing.usecase.placeorder.PlaceOrderUseCase;
 import co.com.ticketing.usecase.retrieveorder.RetrieveOrderUseCase;
 import co.com.ticketing.usecase.retrieveorderhistory.RetrieveOrderHistoryUseCase;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.server.ServerRequest;
@@ -27,16 +28,20 @@ public class OrderHandler {
     private final RetrieveOrderHistoryUseCase retrieveOrderHistoryUseCase;
 
     /**
-     * Places an order and answers 202 Accepted: its tickets are reserved later, asynchronously.
+     * Places an order and answers 202 Accepted: its tickets are reserved later, asynchronously. A retry with the
+     * same Idempotency-Key gets the same order, in its current state, marked with Idempotent-Replayed.
      */
     public Mono<ServerResponse> placeOrder(ServerRequest request) {
+        String idempotencyKey = request.headers().firstHeader(ApiHeaders.IDEMPOTENCY_KEY);
         return request.bodyToMono(NewOrder.class)
                 .switchIfEmpty(Mono.error(MissingRequestBodyException::new))
-                .flatMap(newOrder -> placeOrderUseCase.run(newOrder, customerId(request)))
-                .flatMap(order -> ServerResponse.accepted()
-                        .location(locationOf(order))
+                .flatMap(newOrder -> placeOrderUseCase.run(newOrder, customerId(request), idempotencyKey))
+                .flatMap(placement -> ServerResponse.accepted()
+                        .location(locationOf(placement.order()))
+                        .header(HttpHeaders.RETRY_AFTER, ApiHeaders.RETRY_AFTER_SECONDS)
+                        .header(ApiHeaders.IDEMPOTENT_REPLAYED, String.valueOf(placement.replayed()))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .bodyValue(OrderResponse.from(order)));
+                        .bodyValue(OrderResponse.from(placement.order())));
     }
 
     /**
@@ -76,7 +81,7 @@ public class OrderHandler {
                 .orElse(ApiHeaders.DEFAULT_CUSTOMER_ID);
     }
 
-    private static URI locationOf(QueuedOrder order) {
+    private static URI locationOf(Order order) {
         return UriComponentsBuilder.fromPath(ApiPaths.ORDER_BY_ID).build(order.details().id());
     }
 }

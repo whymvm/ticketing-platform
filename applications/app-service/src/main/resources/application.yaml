@@ -36,6 +36,7 @@ aws:
       events: ${EVENTS_TABLE:}
       orders: ${ORDERS_TABLE:}
       orderHistory: ${ORDER_HISTORY_TABLE:}
+      idempotency: ${IDEMPOTENCY_TABLE:}
 adapter:
   sqs:
     region: ${aws.region}

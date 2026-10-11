@@ -51,7 +51,7 @@ class InventoryDynamoDBAdapterTest {
     @BeforeEach
     void setUp() {
         adapter = new InventoryDynamoDBAdapter(client, new DynamoDBProperties("us-east-1", null,
-                new DynamoDBProperties.Tables("local-ticketing-events", "local-ticketing-orders", "local-ticketing-order-history")));
+                new DynamoDBProperties.Tables("local-ticketing-events", "local-ticketing-orders", "local-ticketing-order-history", "local-ticketing-idempotency")));
     }
 
     @Test
