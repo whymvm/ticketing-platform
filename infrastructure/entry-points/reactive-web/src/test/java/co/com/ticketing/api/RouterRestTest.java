@@ -22,7 +22,10 @@ import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectionReason;
 import co.com.ticketing.model.event.NewEvent;
+import co.com.ticketing.model.event.Availability;
 import co.com.ticketing.usecase.createevent.CreateEventUseCase;
+import co.com.ticketing.usecase.retrieveavailability.RetrieveAvailabilityUseCase;
+import co.com.ticketing.usecase.watchavailability.WatchAvailabilityUseCase;
 import co.com.ticketing.usecase.confirmorder.ConfirmOrderUseCase;
 import co.com.ticketing.usecase.placeorder.PlaceOrderUseCase;
 import co.com.ticketing.usecase.retrieveorder.RetrieveOrderUseCase;
@@ -37,12 +40,15 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.stream.Stream;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -65,6 +71,12 @@ class RouterRestTest {
 
     @MockitoBean
     private RetrieveEventUseCase retrieveEventUseCase;
+
+    @MockitoBean
+    private RetrieveAvailabilityUseCase retrieveAvailabilityUseCase;
+
+    @MockitoBean
+    private WatchAvailabilityUseCase watchAvailabilityUseCase;
 
     @MockitoBean
     private PlaceOrderUseCase placeOrderUseCase;
@@ -229,6 +241,72 @@ class RouterRestTest {
                 .expectBody()
                 .jsonPath("$.code").isEqualTo("INTERNAL_ERROR")
                 .jsonPath("$.detail").isEqualTo("Unexpected error");
+    }
+
+    private static final Availability AVAILABILITY = new Availability("e-1", 5000, 4998, 2, 0, 0, 0,
+            Instant.parse("2026-10-11T12:00:00Z"));
+
+    @Test
+    void retrieveAvailabilityReturns200WithEveryCounter() {
+        when(retrieveAvailabilityUseCase.run("e-1")).thenReturn(Mono.just(AVAILABILITY));
+
+        webTestClient.get()
+                .uri("/api/v1/events/e-1/availability")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.eventId").isEqualTo("e-1")
+                .jsonPath("$.capacity").isEqualTo(5000)
+                .jsonPath("$.available").isEqualTo(4998)
+                .jsonPath("$.reserved").isEqualTo(2)
+                .jsonPath("$.pendingConfirmation").isEqualTo(0)
+                .jsonPath("$.sold").isEqualTo(0)
+                .jsonPath("$.complimentary").isEqualTo(0)
+                .jsonPath("$.asOf").isEqualTo("2026-10-11T12:00:00Z");
+    }
+
+    @Test
+    void retrieveAvailabilityReturns404WhenTheEventDoesNotExist() {
+        when(retrieveAvailabilityUseCase.run("missing")).thenReturn(Mono.error(new EventNotFoundException("missing")));
+
+        webTestClient.get()
+                .uri("/api/v1/events/missing/availability")
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("EVENT_NOT_FOUND");
+    }
+
+    @Test
+    void streamAvailabilitySendsServerSentEvents() {
+        when(retrieveAvailabilityUseCase.run("e-1")).thenReturn(Mono.just(AVAILABILITY));
+        when(watchAvailabilityUseCase.run("e-1")).thenReturn(Flux.just(AVAILABILITY));
+
+        Flux<String> body = webTestClient.get()
+                .uri("/api/v1/events/e-1/availability/stream")
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM)
+                .returnResult(String.class)
+                .getResponseBody();
+
+        StepVerifier.create(body.take(1))
+                .assertNext(data -> assertThat(data).contains("\"available\":4998").contains("\"eventId\":\"e-1\""))
+                .verifyComplete();
+    }
+
+    @Test
+    void streamAvailabilityReturns404InsteadOfAStreamWhenTheEventDoesNotExist() {
+        when(retrieveAvailabilityUseCase.run("missing")).thenReturn(Mono.error(new EventNotFoundException("missing")));
+
+        webTestClient.get()
+                .uri("/api/v1/events/missing/availability/stream")
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .exchange()
+                .expectStatus().isNotFound();
+
+        verifyNoInteractions(watchAvailabilityUseCase);
     }
 
     private static final QueuedOrder QUEUED_ORDER = new QueuedOrder(new OrderDetails("o-1", "e-1", "c-1", 2,

@@ -27,6 +27,18 @@ public class RouterRest {
                     method = RequestMethod.GET
             ),
             @RouterOperation(
+                    path = ApiPaths.EVENT_AVAILABILITY,
+                    beanClass = EventHandler.class,
+                    beanMethod = "retrieveAvailability",
+                    method = RequestMethod.GET
+            ),
+            @RouterOperation(
+                    path = ApiPaths.EVENT_AVAILABILITY_STREAM,
+                    beanClass = EventHandler.class,
+                    beanMethod = "streamAvailability",
+                    method = RequestMethod.GET
+            ),
+            @RouterOperation(
                     path = ApiPaths.ORDERS,
                     beanClass = OrderHandler.class,
                     beanMethod = "placeOrder",
@@ -52,6 +64,8 @@ public class RouterRest {
                 .route()
                 .POST(ApiPaths.EVENTS, eventHandler::createEvent)
                 .GET(ApiPaths.EVENT_BY_ID, eventHandler::retrieveEvent)
+                .GET(ApiPaths.EVENT_AVAILABILITY, eventHandler::retrieveAvailability)
+                .GET(ApiPaths.EVENT_AVAILABILITY_STREAM, eventHandler::streamAvailability)
                 .POST(ApiPaths.ORDERS, orderHandler::placeOrder)
                 .GET(ApiPaths.ORDER_BY_ID, orderHandler::retrieveOrder)
                 .POST(ApiPaths.ORDER_CONFIRMATION, orderHandler::confirmOrder)
