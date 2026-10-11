@@ -1,9 +1,11 @@
 package co.com.ticketing.api;
 
+import co.com.ticketing.model.event.TicketStatus;
 import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.OrderStatus;
+import co.com.ticketing.model.order.PendingConfirmationOrder;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectedOrder;
 import co.com.ticketing.model.order.RejectionReason;
@@ -15,6 +17,7 @@ import java.time.Instant;
 
 /**
  * Order as the API returns it: one flat object with a status. In the domain each status is its own type.
+ * ticketStatus is the state of its tickets, one of the five states of the technical test (ADR 0001).
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record OrderResponse(String id,
@@ -22,6 +25,7 @@ public record OrderResponse(String id,
                             String customerId,
                             Integer quantity,
                             OrderStatus status,
+                            TicketStatus ticketStatus,
                             Instant expiresAt,
                             RejectionReason rejectionReason,
                             Instant createdAt,
@@ -34,6 +38,7 @@ public record OrderResponse(String id,
         return switch (order) {
             case QueuedOrder queued -> of(queued, null, null);
             case ReservedOrder reserved -> of(reserved, reserved.expiresAt(), null);
+            case PendingConfirmationOrder pending -> of(pending, pending.expiresAt(), null);
             case RejectedOrder rejected -> of(rejected, null, rejected.rejectionReason());
             case ExpiredOrder expired -> of(expired, null, null);
             case SoldOrder sold -> of(sold, null, null);
@@ -43,6 +48,7 @@ public record OrderResponse(String id,
     private static OrderResponse of(Order order, Instant expiresAt, RejectionReason rejectionReason) {
         OrderDetails details = order.details();
         return new OrderResponse(details.id(), details.eventId(), details.customerId(), details.quantity(),
-                order.status(), expiresAt, rejectionReason, details.createdAt(), order.updatedAt());
+                order.status(), order.status().ticketStatus().orElse(null), expiresAt, rejectionReason,
+                details.createdAt(), order.updatedAt());
     }
 }

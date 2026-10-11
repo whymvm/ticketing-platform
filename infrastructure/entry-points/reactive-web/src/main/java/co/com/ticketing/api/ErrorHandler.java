@@ -14,8 +14,11 @@ import co.com.ticketing.model.exception.InvalidIdempotencyKeyException;
 import co.com.ticketing.model.exception.MissingIdempotencyKeyException;
 import co.com.ticketing.model.exception.InvalidOrderEventException;
 import co.com.ticketing.model.exception.InvalidOrderQuantityException;
+import co.com.ticketing.model.exception.InvalidPaymentNotificationException;
 import co.com.ticketing.model.exception.OrderNotFoundException;
+import co.com.ticketing.model.exception.OrderNotAwaitingPaymentException;
 import co.com.ticketing.model.exception.OrderNotReservedException;
+import co.com.ticketing.model.exception.PaymentExpiredException;
 import co.com.ticketing.model.exception.ReservationExpiredException;
 import lombok.extern.java.Log;
 import org.springframework.http.HttpStatusCode;
@@ -39,6 +42,7 @@ import java.util.logging.Level;
 public class ErrorHandler {
 
     private static final String CODE_PROPERTY = "code";
+    private static final String DOMAIN_EXCEPTIONS = EventNotFoundException.class.getPackageName();
 
     public Mono<ServerResponse> handle(Throwable error, ServerRequest request) {
         return switch (error) {
@@ -61,9 +65,17 @@ public class ErrorHandler {
             case IdempotencyKeyReusedException e -> problem(ErrorCode.IDEMPOTENCY_KEY_REUSED, e.getMessage(), request);
             case ReservationExpiredException e -> problem(ErrorCode.RESERVATION_EXPIRED, e.getMessage(), request);
             case OrderNotReservedException e -> problem(ErrorCode.ORDER_NOT_RESERVED, e.getMessage(), request);
+            case PaymentExpiredException e -> problem(ErrorCode.PAYMENT_EXPIRED, e.getMessage(), request);
+            case OrderNotAwaitingPaymentException e ->
+                    problem(ErrorCode.ORDER_NOT_AWAITING_PAYMENT, e.getMessage(), request);
+            case InvalidPaymentNotificationException e ->
+                    problem(ErrorCode.INVALID_PAYMENT_NOTIFICATION, e.getMessage(), request);
             case ConcurrencyConflictException e ->
                     problem(ErrorCode.CONCURRENCY_CONFLICT, e.getMessage(), request);
             case MissingRequestBodyException e -> problem(ErrorCode.MISSING_REQUEST_BODY, e.getMessage(), request);
+            // A domain rule broken while reading the body (a record that validates itself) keeps its own code
+            case ServerWebInputException e when isDomainError(e.getMostSpecificCause()) ->
+                    handle(e.getMostSpecificCause(), request);
             case ServerWebInputException _ -> problem(ErrorCode.MALFORMED_REQUEST_BODY, null, request);
             // Keeps the status code of framework errors
             case ResponseStatusException e ->
@@ -73,6 +85,10 @@ public class ErrorHandler {
                 yield problem(ErrorCode.INTERNAL_ERROR, null, request);
             }
         };
+    }
+
+    private static boolean isDomainError(Throwable error) {
+        return error.getClass().getPackageName().equals(DOMAIN_EXCEPTIONS);
     }
 
     private Mono<ServerResponse> problem(ErrorCode code, String detail, ServerRequest request) {

@@ -1,7 +1,6 @@
 package co.com.ticketing.model.order.gateways;
 
 import co.com.ticketing.model.order.Order;
-import co.com.ticketing.model.order.ReservedOrder;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -21,12 +20,13 @@ public interface OrderRetriever {
     Mono<Order> findById(String id);
 
     /**
-     * Finds the reserved orders whose reservation time is over. The result may include a few orders that were
-     * processed a moment ago, so the caller must not rely on it alone.
+     * Finds the orders that missed their deadline: reservations not confirmed in time and payments that did not
+     * arrive in time. The result may include a few orders that were processed a moment ago, so the caller must
+     * not rely on it alone.
      *
      * @param now the current instant
-     * @return the expired reservations
+     * @return the reserved and pending confirmation orders whose deadline is over
      */
-    Flux<ReservedOrder> findExpiredReservations(Instant now);
+    Flux<Order> findOrdersPastDeadline(Instant now);
 
 }

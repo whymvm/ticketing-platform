@@ -7,10 +7,10 @@ import co.com.ticketing.model.exception.OrderNotReservedException;
 import co.com.ticketing.model.exception.ReservationExpiredException;
 import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.OrderDetails;
+import co.com.ticketing.model.order.PendingConfirmationOrder;
 import co.com.ticketing.model.order.QueuedOrder;
 import co.com.ticketing.model.order.RejectionReason;
 import co.com.ticketing.model.order.ReservedOrder;
-import co.com.ticketing.model.order.SoldOrder;
 import co.com.ticketing.model.order.gateways.InventoryUpdater;
 import co.com.ticketing.model.order.gateways.OrderRetriever;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,7 +44,7 @@ class ConfirmOrderUseCaseTest {
             new OrderDetails("o-1", "e-1", "c-1", 2, Instant.parse("2026-10-10T12:00:00Z")));
     private static final ReservedOrder RESERVED = QUEUED.reserve(Instant.parse("2026-10-10T12:00:00Z"),
             Duration.ofMinutes(10));
-    private static final SoldOrder SOLD = RESERVED.confirm(NOW);
+    private static final PendingConfirmationOrder PENDING = RESERVED.confirm(NOW);
 
     @Mock
     private OrderRetriever orderRetriever;
@@ -60,21 +60,26 @@ class ConfirmOrderUseCaseTest {
     }
 
     @Test
-    void sellsTheTicketsOfAReservedOrder() {
+    void holdsTheTicketsOfAReservedOrderUntilItsPaymentArrives() {
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(RESERVED));
-        when(inventoryUpdater.sellTickets(SOLD)).thenReturn(Mono.just(SOLD));
+        when(inventoryUpdater.holdForPayment(PENDING)).thenReturn(Mono.just(PENDING));
 
         StepVerifier.create(useCase.run("o-1", "c-1"))
-                .expectNext(SOLD)
+                .expectNext(PENDING)
                 .verifyComplete();
     }
 
-    @Test
-    void returnsTheOrderAgainWhenItIsAlreadySold() {
-        when(orderRetriever.findById("o-1")).thenReturn(Mono.just(SOLD));
+    static Stream<Order> ordersAlreadyConfirmed() {
+        return Stream.of(PENDING, PENDING.markPaid(NOW.plusSeconds(10)));
+    }
+
+    @ParameterizedTest
+    @MethodSource("ordersAlreadyConfirmed")
+    void returnsTheOrderAgainWhenItIsAlreadyConfirmed(Order order) {
+        when(orderRetriever.findById("o-1")).thenReturn(Mono.just(order));
 
         StepVerifier.create(useCase.run("o-1", "c-1"))
-                .expectNext(SOLD)
+                .expectNext(order)
                 .verifyComplete();
 
         verifyNoInteractions(inventoryUpdater);
@@ -131,44 +136,44 @@ class ConfirmOrderUseCaseTest {
     @Test
     void retriesWhenAConcurrentWriteGetsInTheWay() {
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(RESERVED));
-        when(inventoryUpdater.sellTickets(SOLD))
+        when(inventoryUpdater.holdForPayment(PENDING))
                 .thenReturn(Mono.error(new ConcurrencyConflictException("o-1")))
-                .thenReturn(Mono.just(SOLD));
+                .thenReturn(Mono.just(PENDING));
 
         StepVerifier.create(useCase.run("o-1", "c-1"))
-                .expectNext(SOLD)
+                .expectNext(PENDING)
                 .verifyComplete();
 
-        verify(inventoryUpdater, times(2)).sellTickets(SOLD);
+        verify(inventoryUpdater, times(2)).holdForPayment(PENDING);
     }
 
     @Test
     void givesUpAfterTheLastRetryAndKeepsTheConflict() {
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(RESERVED));
-        when(inventoryUpdater.sellTickets(any(SoldOrder.class)))
+        when(inventoryUpdater.holdForPayment(any(PendingConfirmationOrder.class)))
                 .thenReturn(Mono.error(new ConcurrencyConflictException("o-1")));
 
         StepVerifier.create(useCase.run("o-1", "c-1"))
                 .expectError(ConcurrencyConflictException.class)
                 .verify();
 
-        verify(inventoryUpdater, times(ConfirmOrderUseCase.MAX_RETRIES + 1)).sellTickets(SOLD);
+        verify(inventoryUpdater, times(ConfirmOrderUseCase.MAX_RETRIES + 1)).holdForPayment(PENDING);
     }
 
     @Test
-    void returnsTheSoldOrderWhenARepeatedConfirmationWonTheRace() {
-        when(orderRetriever.findById("o-1")).thenReturn(Mono.just(RESERVED), Mono.just(SOLD));
-        when(inventoryUpdater.sellTickets(SOLD)).thenReturn(Mono.error(new OrderAlreadyProcessedException("o-1")));
+    void returnsTheConfirmedOrderWhenARepeatedConfirmationWonTheRace() {
+        when(orderRetriever.findById("o-1")).thenReturn(Mono.just(RESERVED), Mono.just(PENDING));
+        when(inventoryUpdater.holdForPayment(PENDING)).thenReturn(Mono.error(new OrderAlreadyProcessedException("o-1")));
 
         StepVerifier.create(useCase.run("o-1", "c-1"))
-                .expectNext(SOLD)
+                .expectNext(PENDING)
                 .verifyComplete();
     }
 
     @Test
     void rejectsTheConfirmationWhenTheSchedulerExpiredTheOrderFirst() {
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(RESERVED), Mono.just(RESERVED.expire(NOW)));
-        when(inventoryUpdater.sellTickets(SOLD)).thenReturn(Mono.error(new OrderAlreadyProcessedException("o-1")));
+        when(inventoryUpdater.holdForPayment(PENDING)).thenReturn(Mono.error(new OrderAlreadyProcessedException("o-1")));
 
         StepVerifier.create(useCase.run("o-1", "c-1"))
                 .expectErrorSatisfies(error -> assertThat(error)
@@ -180,7 +185,7 @@ class ConfirmOrderUseCaseTest {
     @Test
     void asksToTryAgainWhenTheReadIsNotUpToDateYet() {
         when(orderRetriever.findById("o-1")).thenReturn(Mono.just(RESERVED));
-        when(inventoryUpdater.sellTickets(SOLD)).thenReturn(Mono.error(new OrderAlreadyProcessedException("o-1")));
+        when(inventoryUpdater.holdForPayment(PENDING)).thenReturn(Mono.error(new OrderAlreadyProcessedException("o-1")));
 
         StepVerifier.create(useCase.run("o-1", "c-1"))
                 .expectError(ConcurrencyConflictException.class)

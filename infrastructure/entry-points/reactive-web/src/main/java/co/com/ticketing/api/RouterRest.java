@@ -61,6 +61,12 @@ public class RouterRest {
                     beanClass = OrderHandler.class,
                     beanMethod = "retrieveOrderHistory",
                     method = RequestMethod.GET
+            ),
+            @RouterOperation(
+                    path = ApiPaths.ORDER_PAYMENT,
+                    beanClass = OrderHandler.class,
+                    beanMethod = "recordPayment",
+                    method = RequestMethod.POST
             )
     })
     @Bean
@@ -76,6 +82,7 @@ public class RouterRest {
                 .GET(ApiPaths.ORDER_BY_ID, orderHandler::retrieveOrder)
                 .POST(ApiPaths.ORDER_CONFIRMATION, orderHandler::confirmOrder)
                 .GET(ApiPaths.ORDER_HISTORY, orderHandler::retrieveOrderHistory)
+                .POST(ApiPaths.ORDER_PAYMENT, orderHandler::recordPayment)
                 .onError(Throwable.class, errorHandler::handle)
                 .build();
     }

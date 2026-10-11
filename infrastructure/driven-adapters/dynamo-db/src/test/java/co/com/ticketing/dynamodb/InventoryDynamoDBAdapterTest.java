@@ -7,7 +7,9 @@ import co.com.ticketing.model.exception.OrderAlreadyProcessedException;
 import co.com.ticketing.model.exception.TicketsSoldOutException;
 import co.com.ticketing.model.order.ExpiredOrder;
 import co.com.ticketing.model.order.OrderDetails;
+import co.com.ticketing.model.order.PendingConfirmationOrder;
 import co.com.ticketing.model.order.QueuedOrder;
+import co.com.ticketing.model.order.RejectedOrder;
 import co.com.ticketing.model.order.ReservedOrder;
 import co.com.ticketing.model.order.SoldOrder;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,8 +42,11 @@ import static org.mockito.Mockito.when;
 class InventoryDynamoDBAdapterTest {
 
     private static final Instant NOW = Instant.parse("2026-10-10T12:00:00Z");
-    private static final ReservedOrder ORDER = new QueuedOrder(new OrderDetails("o-1", "e-1", "c-1", 2, NOW))
+    private static final Instant CONFIRMED_AT = NOW.plus(Duration.ofMinutes(4));
+    private static final Instant LATER = CONFIRMED_AT.plus(Duration.ofMinutes(1));
+    private static final ReservedOrder RESERVED = new QueuedOrder(new OrderDetails("o-1", "e-1", "c-1", 2, NOW))
             .reserve(NOW, Duration.ofMinutes(10));
+    private static final PendingConfirmationOrder PENDING = RESERVED.confirm(CONFIRMED_AT);
 
     @Mock
     private DynamoDbAsyncClient client;
@@ -51,148 +56,133 @@ class InventoryDynamoDBAdapterTest {
     @BeforeEach
     void setUp() {
         adapter = new InventoryDynamoDBAdapter(client, new DynamoDBProperties("us-east-1", null,
-                new DynamoDBProperties.Tables("local-ticketing-events", "local-ticketing-orders", "local-ticketing-order-history", "local-ticketing-idempotency")));
+                new DynamoDBProperties.Tables("local-ticketing-events", "local-ticketing-orders",
+                        "local-ticketing-order-history", "local-ticketing-idempotency")));
     }
 
     @Test
-    void reserveTicketsHoldsTheTicketsAndMarksTheOrderInOneTransaction() {
-        when(client.transactWriteItems(any(TransactWriteItemsRequest.class)))
-                .thenReturn(CompletableFuture.completedFuture(TransactWriteItemsResponse.builder().build()));
+    void reserveTicketsMovesThemFromAvailableToReservedAndMarksTheOrder() {
+        allowTransactions();
 
-        StepVerifier.create(adapter.reserveTickets(ORDER))
-                .expectNext(ORDER)
-                .verifyComplete();
+        StepVerifier.create(adapter.reserveTickets(RESERVED)).expectNext(RESERVED).verifyComplete();
 
-        ArgumentCaptor<TransactWriteItemsRequest> captor = ArgumentCaptor.forClass(TransactWriteItemsRequest.class);
-        verify(client).transactWriteItems(captor.capture());
-        assertThat(captor.getValue().transactItems()).hasSize(3);
+        TransactWriteItemsRequest request = capturedTransaction();
+        assertThat(request.transactItems()).hasSize(3);
+        assertTicketsMove(request.transactItems().get(0).update(), "available", "reserved");
 
-        Update event = captor.getValue().transactItems().get(0).update();
-        assertThat(event.tableName()).isEqualTo("local-ticketing-events");
-        assertThat(event.key()).containsEntry("id", AttributeValue.fromS("e-1"));
-        assertThat(event.updateExpression())
-                .isEqualTo("SET #available = #available - :quantity, #reserved = #reserved + :quantity");
-        assertThat(event.conditionExpression()).isEqualTo("#available >= :quantity");
-        assertThat(event.expressionAttributeValues()).containsEntry(":quantity", AttributeValue.fromN("2"));
-
-        Update order = captor.getValue().transactItems().get(1).update();
+        Update order = request.transactItems().get(1).update();
         assertThat(order.tableName()).isEqualTo("local-ticketing-orders");
         assertThat(order.key()).containsEntry("id", AttributeValue.fromS("o-1"));
         assertThat(order.updateExpression()).isEqualTo(
-                "SET #status = :reserved, #expiresAt = :expiresAt, #expiryShard = :expiryShard, #updatedAt = :updatedAt");
-        assertThat(order.conditionExpression()).isEqualTo("#status = :queued");
+                "SET #status = :newStatus, #expiresAt = :expiresAt, #expiryShard = :expiryShard, #updatedAt = :updatedAt");
+        assertThat(order.conditionExpression()).isEqualTo("#status = :expected");
         assertThat(order.expressionAttributeValues())
-                .containsEntry(":reserved", AttributeValue.fromS("RESERVED"))
-                .containsEntry(":queued", AttributeValue.fromS("QUEUED"))
+                .containsEntry(":newStatus", AttributeValue.fromS("RESERVED"))
+                .containsEntry(":expected", AttributeValue.fromS("QUEUED"))
                 .containsEntry(":expiresAt", AttributeValue.fromS("2026-10-10T12:10:00Z"))
                 .containsEntry(":expiryShard", AttributeValue.fromS(ExpiringOrdersIndex.shardOf("o-1")))
                 .containsEntry(":updatedAt", AttributeValue.fromS("2026-10-10T12:00:00Z"));
 
-        assertHistoryEntry(captor.getValue(), "QUEUED", "RESERVED", "TICKETS_RESERVED");
+        assertHistoryEntry(request, "QUEUED", "RESERVED", "TICKETS_RESERVED");
     }
 
     @Test
-    void releaseTicketsReturnsTheTicketsAndMarksTheOrderInOneTransaction() {
-        ExpiredOrder expired = ORDER.expire(NOW);
-        when(client.transactWriteItems(any(TransactWriteItemsRequest.class)))
-                .thenReturn(CompletableFuture.completedFuture(TransactWriteItemsResponse.builder().build()));
+    void holdForPaymentMovesTheTicketsToPendingConfirmationAndKeepsTheOrderInTheIndex() {
+        allowTransactions();
 
-        StepVerifier.create(adapter.releaseTickets(expired))
-                .expectNext(expired)
-                .verifyComplete();
+        StepVerifier.create(adapter.holdForPayment(PENDING)).expectNext(PENDING).verifyComplete();
 
-        ArgumentCaptor<TransactWriteItemsRequest> captor = ArgumentCaptor.forClass(TransactWriteItemsRequest.class);
-        verify(client).transactWriteItems(captor.capture());
+        TransactWriteItemsRequest request = capturedTransaction();
+        assertTicketsMove(request.transactItems().get(0).update(), "reserved", "pendingConfirmation");
 
-        Update event = captor.getValue().transactItems().get(0).update();
-        assertThat(event.key()).containsEntry("id", AttributeValue.fromS("e-1"));
-        assertThat(event.updateExpression())
-                .isEqualTo("SET #available = #available + :quantity, #reserved = #reserved - :quantity");
-        assertThat(event.conditionExpression()).isEqualTo("#reserved >= :quantity");
-
-        Update order = captor.getValue().transactItems().get(1).update();
-        assertThat(order.key()).containsEntry("id", AttributeValue.fromS("o-1"));
+        Update order = request.transactItems().get(1).update();
         assertThat(order.updateExpression())
-                .isEqualTo("SET #status = :newStatus, #updatedAt = :updatedAt REMOVE #expiryShard");
-        assertThat(order.conditionExpression()).isEqualTo("#status = :reserved");
+                .isEqualTo("SET #status = :newStatus, #expiresAt = :expiresAt, #updatedAt = :updatedAt");
         assertThat(order.expressionAttributeValues())
-                .containsEntry(":newStatus", AttributeValue.fromS("EXPIRED"))
-                .containsEntry(":reserved", AttributeValue.fromS("RESERVED"));
+                .containsEntry(":newStatus", AttributeValue.fromS("PENDING_CONFIRMATION"))
+                .containsEntry(":expected", AttributeValue.fromS("RESERVED"))
+                .containsEntry(":expiresAt", AttributeValue.fromS("2026-10-10T12:09:00Z"));
 
-        assertHistoryEntry(captor.getValue(), "RESERVED", "EXPIRED", "RESERVATION_EXPIRED");
+        assertHistoryEntry(request, "RESERVED", "PENDING_CONFIRMATION", "ORDER_CONFIRMED");
     }
 
     @Test
-    void sellTicketsMovesTheReservedTicketsToSoldAndMarksTheOrderInOneTransaction() {
-        SoldOrder sold = ORDER.confirm(NOW);
-        when(client.transactWriteItems(any(TransactWriteItemsRequest.class)))
-                .thenReturn(CompletableFuture.completedFuture(TransactWriteItemsResponse.builder().build()));
+    void sellTicketsMovesThemFromPendingConfirmationToSoldAndTakesTheOrderOutOfTheIndex() {
+        SoldOrder sold = PENDING.markPaid(LATER);
+        allowTransactions();
 
-        StepVerifier.create(adapter.sellTickets(sold))
-                .expectNext(sold)
-                .verifyComplete();
+        StepVerifier.create(adapter.sellTickets(sold)).expectNext(sold).verifyComplete();
 
-        ArgumentCaptor<TransactWriteItemsRequest> captor = ArgumentCaptor.forClass(TransactWriteItemsRequest.class);
-        verify(client).transactWriteItems(captor.capture());
+        TransactWriteItemsRequest request = capturedTransaction();
+        assertTicketsMove(request.transactItems().get(0).update(), "pendingConfirmation", "sold");
 
-        Update event = captor.getValue().transactItems().get(0).update();
-        assertThat(event.updateExpression())
-                .isEqualTo("SET #reserved = #reserved - :quantity, #sold = #sold + :quantity");
-        assertThat(event.conditionExpression()).isEqualTo("#reserved >= :quantity");
-        assertThat(event.expressionAttributeNames()).containsOnlyKeys("#reserved", "#sold");
-
-        Update order = captor.getValue().transactItems().get(1).update();
+        Update order = request.transactItems().get(1).update();
         assertThat(order.updateExpression())
                 .isEqualTo("SET #status = :newStatus, #updatedAt = :updatedAt REMOVE #expiryShard");
-        assertThat(order.conditionExpression()).isEqualTo("#status = :reserved");
-        assertThat(order.expressionAttributeValues()).containsEntry(":newStatus", AttributeValue.fromS("SOLD"));
+        assertThat(order.expressionAttributeValues())
+                .containsEntry(":newStatus", AttributeValue.fromS("SOLD"))
+                .containsEntry(":expected", AttributeValue.fromS("PENDING_CONFIRMATION"));
 
-        assertHistoryEntry(captor.getValue(), "RESERVED", "SOLD", "ORDER_CONFIRMED");
+        assertHistoryEntry(request, "PENDING_CONFIRMATION", "SOLD", "PAYMENT_APPROVED");
     }
 
     @Test
-    void sellTicketsFailsWithOrderAlreadyProcessedWhenTheOrderIsNoLongerReserved() {
-        cancelWith("None", "ConditionalCheckFailed");
+    void releaseTicketsOfAnExpiredReservationGivesBackTheReservedTickets() {
+        ExpiredOrder expired = RESERVED.expire(LATER);
+        allowTransactions();
 
-        StepVerifier.create(adapter.sellTickets(ORDER.confirm(NOW)))
-                .expectError(OrderAlreadyProcessedException.class)
-                .verify();
+        StepVerifier.create(adapter.releaseTickets(expired)).expectNext(expired).verifyComplete();
+
+        TransactWriteItemsRequest request = capturedTransaction();
+        assertTicketsMove(request.transactItems().get(0).update(), "reserved", "available");
+
+        Update order = request.transactItems().get(1).update();
+        assertThat(order.updateExpression()).isEqualTo(
+                "SET #status = :newStatus, #updatedAt = :updatedAt, #expirationReason = :expirationReason REMOVE #expiryShard");
+        assertThat(order.expressionAttributeValues())
+                .containsEntry(":expected", AttributeValue.fromS("RESERVED"))
+                .containsEntry(":expirationReason", AttributeValue.fromS("RESERVATION_TIMEOUT"));
+
+        assertHistoryEntry(request, "RESERVED", "EXPIRED", "RESERVATION_EXPIRED");
     }
 
     @Test
-    void sellTicketsFailsWithInconsistentInventoryWhenTheEventHasTooFewReservedTickets() {
-        cancelWith("ConditionalCheckFailed", "None");
+    void releaseTicketsOfAnExpiredPaymentGivesBackTheTicketsWaitingForIt() {
+        ExpiredOrder expired = PENDING.expire(LATER);
+        allowTransactions();
 
-        StepVerifier.create(adapter.sellTickets(ORDER.confirm(NOW)))
-                .expectError(InconsistentInventoryException.class)
-                .verify();
+        StepVerifier.create(adapter.releaseTickets(expired)).expectNext(expired).verifyComplete();
+
+        TransactWriteItemsRequest request = capturedTransaction();
+        assertTicketsMove(request.transactItems().get(0).update(), "pendingConfirmation", "available");
+        assertThat(request.transactItems().get(1).update().expressionAttributeValues())
+                .containsEntry(":expected", AttributeValue.fromS("PENDING_CONFIRMATION"))
+                .containsEntry(":expirationReason", AttributeValue.fromS("PAYMENT_TIMEOUT"));
+
+        assertHistoryEntry(request, "PENDING_CONFIRMATION", "EXPIRED", "PAYMENT_TIMEOUT");
     }
 
     @Test
-    void releaseTicketsFailsWithOrderAlreadyProcessedWhenTheOrderIsNoLongerReserved() {
-        cancelWith("None", "ConditionalCheckFailed");
+    void releaseTicketsOfADeclinedPaymentGivesThemBackAndRejectsTheOrder() {
+        RejectedOrder declined = PENDING.declinePayment(LATER);
+        allowTransactions();
 
-        StepVerifier.create(adapter.releaseTickets(ORDER.expire(NOW)))
-                .expectError(OrderAlreadyProcessedException.class)
-                .verify();
-    }
+        StepVerifier.create(adapter.releaseTickets(declined)).expectNext(declined).verifyComplete();
 
-    @Test
-    void releaseTicketsFailsWithInconsistentInventoryWhenTheEventHasTooFewReservedTickets() {
-        cancelWith("ConditionalCheckFailed", "None");
+        TransactWriteItemsRequest request = capturedTransaction();
+        assertTicketsMove(request.transactItems().get(0).update(), "pendingConfirmation", "available");
+        assertThat(request.transactItems().get(1).update().expressionAttributeValues())
+                .containsEntry(":newStatus", AttributeValue.fromS("REJECTED"))
+                .containsEntry(":rejectionReason", AttributeValue.fromS("PAYMENT_DECLINED"));
 
-        StepVerifier.create(adapter.releaseTickets(ORDER.expire(NOW)))
-                .expectErrorSatisfies(error -> assertThat(error)
-                        .isInstanceOf(InconsistentInventoryException.class)
-                        .hasMessage("inconsistent inventory: event e-1 has fewer than 2 reserved tickets"))
-                .verify();
+        assertHistoryEntry(request, "PENDING_CONFIRMATION", "REJECTED", "PAYMENT_DECLINED");
     }
 
     @Test
     void reserveTicketsFailsWithTicketsSoldOutWhenTheEventConditionFails() {
         cancelWith("ConditionalCheckFailed", "None");
 
-        StepVerifier.create(adapter.reserveTickets(ORDER))
+        StepVerifier.create(adapter.reserveTickets(RESERVED))
                 .expectErrorSatisfies(error -> assertThat(error)
                         .isInstanceOf(TicketsSoldOutException.class)
                         .hasMessage("event e-1 does not have 2 tickets available"))
@@ -200,30 +190,51 @@ class InventoryDynamoDBAdapterTest {
     }
 
     @Test
-    void reserveTicketsFailsWithOrderAlreadyProcessedWhenTheOrderIsNoLongerQueued() {
+    void otherMovesFailWithInconsistentInventoryWhenTheEventHasTooFewTickets() {
+        cancelWith("ConditionalCheckFailed", "None");
+
+        StepVerifier.create(adapter.sellTickets(PENDING.markPaid(LATER)))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(InconsistentInventoryException.class)
+                        .hasMessage("inconsistent inventory: event e-1 has fewer than 2 pendingConfirmation tickets"))
+                .verify();
+    }
+
+    @Test
+    void failsWithOrderAlreadyProcessedWhenTheOrderIsNoLongerInTheExpectedState() {
         cancelWith("ConditionalCheckFailed", "ConditionalCheckFailed");
 
-        StepVerifier.create(adapter.reserveTickets(ORDER))
+        StepVerifier.create(adapter.holdForPayment(PENDING))
                 .expectError(OrderAlreadyProcessedException.class)
                 .verify();
     }
 
     @Test
-    void reserveTicketsFailsWithConcurrencyConflictWhenAnotherTransactionGotInTheWay() {
+    void failsWithConcurrencyConflictWhenAnotherTransactionGotInTheWay() {
         cancelWith("TransactionConflict", "None");
 
-        StepVerifier.create(adapter.reserveTickets(ORDER))
+        StepVerifier.create(adapter.reserveTickets(RESERVED))
                 .expectError(ConcurrencyConflictException.class)
                 .verify();
     }
 
     @Test
-    void reserveTicketsKeepsOtherCancellations() {
+    void keepsOtherCancellations() {
         cancelWith();
 
-        StepVerifier.create(adapter.reserveTickets(ORDER))
+        StepVerifier.create(adapter.reserveTickets(RESERVED))
                 .expectError(TransactionCanceledException.class)
                 .verify();
+    }
+
+    // Every move takes tickets from one counter of the event and adds them to another, only if there are enough
+    private static void assertTicketsMove(Update event, String from, String to) {
+        assertThat(event.tableName()).isEqualTo("local-ticketing-events");
+        assertThat(event.key()).containsEntry("id", AttributeValue.fromS("e-1"));
+        assertThat(event.updateExpression()).isEqualTo("SET #from = #from - :quantity, #to = #to + :quantity");
+        assertThat(event.conditionExpression()).isEqualTo("#from >= :quantity");
+        assertThat(event.expressionAttributeNames()).containsEntry("#from", from).containsEntry("#to", to);
+        assertThat(event.expressionAttributeValues()).containsEntry(":quantity", AttributeValue.fromN("2"));
     }
 
     // The third item of every transaction appends the transition to the order history, and never overwrites one
@@ -237,6 +248,17 @@ class InventoryDynamoDBAdapterTest {
                 .containsEntry("toStatus", AttributeValue.fromS(to))
                 .containsEntry("reason", AttributeValue.fromS(reason));
         assertThat(history.item().get("sk").s()).endsWith("#" + to);
+    }
+
+    private void allowTransactions() {
+        when(client.transactWriteItems(any(TransactWriteItemsRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(TransactWriteItemsResponse.builder().build()));
+    }
+
+    private TransactWriteItemsRequest capturedTransaction() {
+        ArgumentCaptor<TransactWriteItemsRequest> captor = ArgumentCaptor.forClass(TransactWriteItemsRequest.class);
+        verify(client).transactWriteItems(captor.capture());
+        return captor.getValue();
     }
 
     private void cancelWith(String... codes) {

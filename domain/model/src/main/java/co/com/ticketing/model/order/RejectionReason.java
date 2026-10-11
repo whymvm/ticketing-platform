@@ -5,5 +5,6 @@ package co.com.ticketing.model.order;
  */
 public enum RejectionReason {
     SOLD_OUT,
-    EVENT_CLOSED
+    EVENT_CLOSED,
+    PAYMENT_DECLINED
 }

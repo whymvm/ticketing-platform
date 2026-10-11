@@ -235,30 +235,59 @@ class OrderDynamoDBAdapterTest {
     }
 
     @Test
+    void findByIdRebuildsAnOrderExpiredForItsPayment() {
+        OrderEntity entity = OrderEntity.from(ORDER);
+        entity.setStatus("EXPIRED");
+        entity.setExpirationReason("PAYMENT_TIMEOUT");
+        when(table.getItem(anyGetItemRequest())).thenReturn(CompletableFuture.completedFuture(entity));
+
+        StepVerifier.create(adapter.findById("o-1"))
+                .expectNext(ORDER.reserve(CREATED_AT, Duration.ofMinutes(10)).confirm(CREATED_AT).expire(CREATED_AT))
+                .verifyComplete();
+    }
+
+    @Test
+    void findByIdRebuildsAnOrderWaitingForItsPayment() {
+        var pending = ORDER.reserve(CREATED_AT, Duration.ofMinutes(10)).confirm(CREATED_AT);
+        OrderEntity entity = OrderEntity.from(ORDER);
+        entity.setStatus("PENDING_CONFIRMATION");
+        entity.setExpiresAt(pending.expiresAt());
+        when(table.getItem(anyGetItemRequest())).thenReturn(CompletableFuture.completedFuture(entity));
+
+        StepVerifier.create(adapter.findById("o-1"))
+                .expectNext(pending)
+                .verifyComplete();
+    }
+
+    @Test
     void findByIdRebuildsASoldOrder() {
         OrderEntity entity = OrderEntity.from(ORDER);
         entity.setStatus("SOLD");
         when(table.getItem(anyGetItemRequest())).thenReturn(CompletableFuture.completedFuture(entity));
 
         StepVerifier.create(adapter.findById("o-1"))
-                .expectNext(ORDER.reserve(CREATED_AT, Duration.ofMinutes(10)).confirm(CREATED_AT))
+                .expectNext(ORDER.reserve(CREATED_AT, Duration.ofMinutes(10)).confirm(CREATED_AT).markPaid(CREATED_AT))
                 .verifyComplete();
     }
 
     @Test
-    void findExpiredReservationsReadsEveryShardAndKeepsOnlyReservedOrders() {
+    void findOrdersPastDeadlineReadsEveryShardAndKeepsOnlyOrdersHoldingTickets() {
         var reserved = ORDER.reserve(CREATED_AT, Duration.ofMinutes(10));
         OrderEntity reservedEntity = OrderEntity.from(ORDER);
         reservedEntity.setStatus("RESERVED");
         reservedEntity.setExpiresAt(reserved.expiresAt());
+        var pending = reserved.confirm(CREATED_AT);
+        OrderEntity pendingEntity = OrderEntity.from(ORDER);
+        pendingEntity.setStatus("PENDING_CONFIRMATION");
+        pendingEntity.setExpiresAt(pending.expiresAt());
         // The index is updated asynchronously, so it may still return an order that just left RESERVED
         OrderEntity staleEntity = OrderEntity.from(ORDER);
         staleEntity.setStatus("EXPIRED");
         when(expiringOrders.query(any(QueryConditional.class)))
-                .thenReturn(pages(reservedEntity, staleEntity), pages(), pages(), pages());
+                .thenReturn(pages(reservedEntity, staleEntity), pages(pendingEntity), pages(), pages());
 
-        StepVerifier.create(adapter.findExpiredReservations(CREATED_AT.plus(Duration.ofMinutes(15))))
-                .expectNext(reserved)
+        StepVerifier.create(adapter.findOrdersPastDeadline(CREATED_AT.plus(Duration.ofMinutes(15))))
+                .expectNextCount(2)
                 .verifyComplete();
 
         verify(expiringOrders, times(ExpiringOrdersIndex.SHARDS)).query(any(QueryConditional.class));

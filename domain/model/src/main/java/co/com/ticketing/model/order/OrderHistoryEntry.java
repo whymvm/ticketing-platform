@@ -20,16 +20,36 @@ public record OrderHistoryEntry(String orderId,
     }
 
     /**
-     * Records how the order reached its current state. Each state has a single previous state in this
-     * lifecycle, so the entry can be built from the order alone.
+     * Records how the order reached its current state. The state, and for rejections and expirations their reason,
+     * tell the previous state, so the entry can be built from the order alone.
      */
     public static OrderHistoryEntry of(Order order) {
         return switch (order) {
             case QueuedOrder queued -> entry(queued, null, TransitionReason.ORDER_PLACED);
             case ReservedOrder reserved -> entry(reserved, OrderStatus.QUEUED, TransitionReason.TICKETS_RESERVED);
-            case RejectedOrder rejected -> entry(rejected, OrderStatus.QUEUED, reasonOf(rejected.rejectionReason()));
-            case SoldOrder sold -> entry(sold, OrderStatus.RESERVED, TransitionReason.ORDER_CONFIRMED);
-            case ExpiredOrder expired -> entry(expired, OrderStatus.RESERVED, TransitionReason.RESERVATION_EXPIRED);
+            case PendingConfirmationOrder pending ->
+                    entry(pending, OrderStatus.RESERVED, TransitionReason.ORDER_CONFIRMED);
+            case SoldOrder sold -> entry(sold, OrderStatus.PENDING_CONFIRMATION, TransitionReason.PAYMENT_APPROVED);
+            case RejectedOrder rejected -> rejection(rejected);
+            case ExpiredOrder expired -> expiration(expired);
+        };
+    }
+
+    // A payment can only be declined for an order waiting for it; the other rejections happen while it is queued
+    private static OrderHistoryEntry rejection(RejectedOrder rejected) {
+        return switch (rejected.rejectionReason()) {
+            case SOLD_OUT -> entry(rejected, OrderStatus.QUEUED, TransitionReason.SOLD_OUT);
+            case EVENT_CLOSED -> entry(rejected, OrderStatus.QUEUED, TransitionReason.EVENT_CLOSED);
+            case PAYMENT_DECLINED ->
+                    entry(rejected, OrderStatus.PENDING_CONFIRMATION, TransitionReason.PAYMENT_DECLINED);
+        };
+    }
+
+    private static OrderHistoryEntry expiration(ExpiredOrder expired) {
+        return switch (expired.expirationReason()) {
+            case RESERVATION_TIMEOUT -> entry(expired, OrderStatus.RESERVED, TransitionReason.RESERVATION_EXPIRED);
+            case PAYMENT_TIMEOUT ->
+                    entry(expired, OrderStatus.PENDING_CONFIRMATION, TransitionReason.PAYMENT_TIMEOUT);
         };
     }
 
@@ -37,10 +57,4 @@ public record OrderHistoryEntry(String orderId,
         return new OrderHistoryEntry(order.details().id(), fromStatus, order.status(), reason, order.updatedAt());
     }
 
-    private static TransitionReason reasonOf(RejectionReason rejectionReason) {
-        return switch (rejectionReason) {
-            case SOLD_OUT -> TransitionReason.SOLD_OUT;
-            case EVENT_CLOSED -> TransitionReason.EVENT_CLOSED;
-        };
-    }
 }

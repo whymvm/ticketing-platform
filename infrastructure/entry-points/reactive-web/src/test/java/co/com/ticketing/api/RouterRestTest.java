@@ -16,12 +16,17 @@ import co.com.ticketing.model.exception.InvalidIdempotencyKeyException;
 import co.com.ticketing.model.exception.MissingIdempotencyKeyException;
 import co.com.ticketing.model.exception.InvalidOrderEventException;
 import co.com.ticketing.model.exception.InvalidOrderQuantityException;
+import co.com.ticketing.model.exception.InvalidPaymentNotificationException;
+import co.com.ticketing.model.exception.OrderNotAwaitingPaymentException;
 import co.com.ticketing.model.exception.OrderNotFoundException;
+import co.com.ticketing.model.exception.PaymentExpiredException;
 import co.com.ticketing.model.exception.OrderNotReservedException;
 import co.com.ticketing.model.exception.ReservationExpiredException;
 import co.com.ticketing.model.order.OrderStatus;
 import co.com.ticketing.model.order.NewOrder;
 import co.com.ticketing.model.order.OrderDetails;
+import co.com.ticketing.model.order.PaymentNotification;
+import co.com.ticketing.model.order.PaymentResult;
 import co.com.ticketing.model.order.OrderPlacement;
 import co.com.ticketing.model.order.OrderHistoryEntry;
 import co.com.ticketing.model.order.QueuedOrder;
@@ -33,6 +38,7 @@ import co.com.ticketing.usecase.retrieveavailability.RetrieveAvailabilityUseCase
 import co.com.ticketing.usecase.watchavailability.WatchAvailabilityUseCase;
 import co.com.ticketing.usecase.confirmorder.ConfirmOrderUseCase;
 import co.com.ticketing.usecase.placeorder.PlaceOrderUseCase;
+import co.com.ticketing.usecase.recordpayment.RecordPaymentUseCase;
 import co.com.ticketing.usecase.retrieveorder.RetrieveOrderUseCase;
 import co.com.ticketing.usecase.retrieveorderhistory.RetrieveOrderHistoryUseCase;
 import co.com.ticketing.usecase.retrieveevent.RetrieveEventUseCase;
@@ -92,6 +98,9 @@ class RouterRestTest {
 
     @MockitoBean
     private ConfirmOrderUseCase confirmOrderUseCase;
+
+    @MockitoBean
+    private RecordPaymentUseCase recordPaymentUseCase;
 
     @MockitoBean
     private RetrieveOrderHistoryUseCase retrieveOrderHistoryUseCase;
@@ -378,20 +387,102 @@ class RouterRestTest {
     }
 
     @Test
-    void confirmOrderReturns200WithTheSoldOrder() {
-        var sold = QUEUED_ORDER.reserve(Instant.parse("2026-10-10T12:00:00Z"), Duration.ofMinutes(10))
+    void confirmOrderReturns202WithTheOrderWaitingForItsPayment() {
+        var pending = QUEUED_ORDER.reserve(Instant.parse("2026-10-10T12:00:00Z"), Duration.ofMinutes(10))
                 .confirm(Instant.parse("2026-10-10T12:05:00Z"));
-        when(confirmOrderUseCase.run("o-1", "c-1")).thenReturn(Mono.just(sold));
+        when(confirmOrderUseCase.run("o-1", "c-1")).thenReturn(Mono.just(pending));
 
         webTestClient.post()
                 .uri("/api/v1/orders/o-1/confirm")
                 .header("X-Customer-Id", "c-1")
                 .exchange()
-                .expectStatus().isOk()
+                .expectStatus().isAccepted()
+                .expectHeader().location("/api/v1/orders/o-1")
                 .expectBody()
                 .jsonPath("$.id").isEqualTo("o-1")
+                .jsonPath("$.status").isEqualTo("PENDING_CONFIRMATION")
+                .jsonPath("$.ticketStatus").isEqualTo("PENDING_CONFIRMATION")
+                .jsonPath("$.expiresAt").isEqualTo("2026-10-10T12:10:00Z");
+    }
+
+    @Test
+    void recordPaymentReturns200WithTheResultOfThePayment() {
+        var sold = QUEUED_ORDER.reserve(Instant.parse("2026-10-10T12:00:00Z"), Duration.ofMinutes(10))
+                .confirm(Instant.parse("2026-10-10T12:05:00Z")).markPaid(Instant.parse("2026-10-10T12:06:00Z"));
+        when(recordPaymentUseCase.run("o-1", new PaymentNotification(PaymentResult.APPROVED)))
+                .thenReturn(Mono.just(sold));
+
+        webTestClient.post()
+                .uri("/api/v1/orders/o-1/payment")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"result\":\"APPROVED\"}")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
                 .jsonPath("$.status").isEqualTo("SOLD")
-                .jsonPath("$.expiresAt").doesNotExist();
+                .jsonPath("$.ticketStatus").isEqualTo("SOLD");
+    }
+
+    @Test
+    void recordPaymentReturns400WhenTheBodyIsMissing() {
+        webTestClient.post()
+                .uri("/api/v1/orders/o-1/payment")
+                .contentType(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("MISSING_REQUEST_BODY");
+    }
+
+    @Test
+    void recordPaymentReturnsItsOwnCodeWhenTheNotificationHasNoResult() {
+        webTestClient.post()
+                .uri("/api/v1/orders/o-1/payment")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{}")
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("INVALID_PAYMENT_NOTIFICATION")
+                .jsonPath("$.detail").isEqualTo("result is required and must be APPROVED or DECLINED");
+
+        verifyNoInteractions(recordPaymentUseCase);
+    }
+
+    @Test
+    void recordPaymentKeepsTheGenericCodeForAnUnknownResult() {
+        webTestClient.post()
+                .uri("/api/v1/orders/o-1/payment")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"result\":\"MAYBE\"}")
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("MALFORMED_REQUEST_BODY");
+    }
+
+    static Stream<Arguments> paymentErrors() {
+        return Stream.of(
+                Arguments.of(new PaymentExpiredException("o-1"), 409, "PAYMENT_EXPIRED"),
+                Arguments.of(new OrderNotAwaitingPaymentException("o-1", OrderStatus.EXPIRED), 409,
+                        "ORDER_NOT_AWAITING_PAYMENT"),
+                Arguments.of(new InvalidPaymentNotificationException(), 400, "INVALID_PAYMENT_NOTIFICATION"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("paymentErrors")
+    void recordPaymentMapsEachErrorToItsOwnCode(RuntimeException error, int status, String code) {
+        when(recordPaymentUseCase.run(any(), any())).thenReturn(Mono.error(error));
+
+        webTestClient.post()
+                .uri("/api/v1/orders/o-1/payment")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"result\":\"DECLINED\"}")
+                .exchange()
+                .expectStatus().isEqualTo(status)
+                .expectBody()
+                .jsonPath("$.code").isEqualTo(code)
+                .jsonPath("$.detail").isEqualTo(error.getMessage());
     }
 
     static Stream<Arguments> confirmationConflicts() {
