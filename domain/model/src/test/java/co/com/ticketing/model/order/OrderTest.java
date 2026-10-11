@@ -41,6 +41,12 @@ class OrderTest {
     }
 
     @Test
+    void belongsToTheCustomerWhoPlacedIt() {
+        assertThat(QUEUED.belongsTo("c-1")).isTrue();
+        assertThat(QUEUED.belongsTo("c-2")).isFalse();
+    }
+
+    @Test
     void aReservedOrderAlwaysHasAnExpiration() {
         assertThatThrownBy(() -> new ReservedOrder(DETAILS, null))
                 .isInstanceOf(NullPointerException.class)

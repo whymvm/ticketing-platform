@@ -15,4 +15,11 @@ public sealed interface Order permits QueuedOrder, ReservedOrder, RejectedOrder 
      * Name of the state, for the API and the database.
      */
     OrderStatus status();
+
+    /**
+     * Tells if the order was placed by the given customer.
+     */
+    default boolean belongsTo(String customerId) {
+        return details().customerId().equals(customerId);
+    }
 }

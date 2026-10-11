@@ -11,12 +11,15 @@ import co.com.ticketing.model.exception.InvalidEventVenueException;
 import co.com.ticketing.model.exception.InvalidCustomerException;
 import co.com.ticketing.model.exception.InvalidOrderEventException;
 import co.com.ticketing.model.exception.InvalidOrderQuantityException;
+import co.com.ticketing.model.exception.OrderNotFoundException;
 import co.com.ticketing.model.order.NewOrder;
 import co.com.ticketing.model.order.OrderDetails;
 import co.com.ticketing.model.order.QueuedOrder;
+import co.com.ticketing.model.order.RejectionReason;
 import co.com.ticketing.model.event.NewEvent;
 import co.com.ticketing.usecase.createevent.CreateEventUseCase;
 import co.com.ticketing.usecase.placeorder.PlaceOrderUseCase;
+import co.com.ticketing.usecase.retrieveorder.RetrieveOrderUseCase;
 import co.com.ticketing.usecase.retrieveevent.RetrieveEventUseCase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -58,6 +61,9 @@ class RouterRestTest {
 
     @MockitoBean
     private PlaceOrderUseCase placeOrderUseCase;
+
+    @MockitoBean
+    private RetrieveOrderUseCase retrieveOrderUseCase;
 
     @Test
     void createEventReturns201WithLocationAndBody() {
@@ -236,6 +242,38 @@ class RouterRestTest {
                 .jsonPath("$.customerId").isEqualTo("c-1")
                 .jsonPath("$.expiresAt").doesNotExist()
                 .jsonPath("$.rejectionReason").doesNotExist();
+    }
+
+    @Test
+    void retrieveOrderReturns200WithTheFieldsOfItsState() {
+        when(retrieveOrderUseCase.run("o-1", "c-1"))
+                .thenReturn(Mono.just(QUEUED_ORDER.reject(RejectionReason.SOLD_OUT)));
+
+        webTestClient.get()
+                .uri("/api/v1/orders/o-1")
+                .header("X-Customer-Id", "c-1")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.id").isEqualTo("o-1")
+                .jsonPath("$.status").isEqualTo("REJECTED")
+                .jsonPath("$.rejectionReason").isEqualTo("SOLD_OUT")
+                .jsonPath("$.expiresAt").doesNotExist();
+    }
+
+    @Test
+    void retrieveOrderReturns404WhenTheOrderIsNotFound() {
+        when(retrieveOrderUseCase.run("o-9", "local-customer"))
+                .thenReturn(Mono.error(new OrderNotFoundException("o-9")));
+
+        webTestClient.get()
+                .uri("/api/v1/orders/o-9")
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("ORDER_NOT_FOUND")
+                .jsonPath("$.detail").isEqualTo("no order found with id o-9")
+                .jsonPath("$.instance").isEqualTo("/api/v1/orders/o-9");
     }
 
     @Test
