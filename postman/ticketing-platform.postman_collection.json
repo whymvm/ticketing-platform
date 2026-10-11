@@ -341,6 +341,143 @@
           ]
         },
         {
+          "name": "Retrieve availability",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "const availability = pm.response.json();",
+                  "pm.test('every ticket of the new event is available', () => {",
+                  "    pm.expect(availability.eventId).to.eql(pm.collectionVariables.get('eventId'));",
+                  "    pm.expect(availability).to.include({ capacity: 5000, available: 5000, reserved: 0, pendingConfirmation: 0, sold: 0, complimentary: 0 });",
+                  "    pm.expect(availability.asOf).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{eventId}}/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{eventId}}",
+                "availability"
+              ]
+            },
+            "description": "Returns how many tickets of the event are in each state right now. For live updates, open GET /api/v1/events/{id}/availability/stream (Server-Sent Events), for example with curl -N."
+          },
+          "response": [
+            {
+              "name": "Retrieve availability",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{eventId}}/availability",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{eventId}}",
+                    "availability"
+                  ]
+                },
+                "description": "Returns how many tickets of the event are in each state right now. For live updates, open GET /api/v1/events/{id}/availability/stream (Server-Sent Events), for example with curl -N."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"capacity\": 5000,\n  \"available\": 5000,\n  \"reserved\": 0,\n  \"pendingConfirmation\": 0,\n  \"sold\": 0,\n  \"complimentary\": 0,\n  \"asOf\": \"2026-10-11T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve availability - not found",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 404', () => pm.response.to.have.status(404));",
+                  "pm.test('returns code EVENT_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('EVENT_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/00000000-0000-0000-0000-000000000000/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "00000000-0000-0000-0000-000000000000",
+                "availability"
+              ]
+            },
+            "description": "Asks for the availability of an event that does not exist."
+          },
+          "response": [
+            {
+              "name": "Retrieve availability - not found",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/00000000-0000-0000-0000-000000000000/availability",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "00000000-0000-0000-0000-000000000000",
+                    "availability"
+                  ]
+                },
+                "description": "Asks for the availability of an event that does not exist."
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"no event found with id 00000000-0000-0000-0000-000000000000\",\n  \"instance\": \"/api/v1/events/00000000-0000-0000-0000-000000000000/availability\",\n  \"status\": 404,\n  \"title\": \"Not Found\",\n  \"code\": \"EVENT_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
           "name": "Create event - validation errors",
           "description": "Each request breaks one rule and checks the error code returned by the API.",
           "item": [
@@ -1637,6 +1774,74 @@
                 }
               ],
               "body": "{\n  \"id\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"2026-11-09T01:00:00Z\",\n  \"finishesAt\": \"2026-11-09T04:00:00Z\",\n  \"capacity\": 5000,\n  \"inventory\": {\n    \"available\": 4998,\n    \"reserved\": 0,\n    \"pendingConfirmation\": 0,\n    \"sold\": 2,\n    \"complimentary\": 0\n  },\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve availability - after the sale",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('counts the sold tickets', () => {",
+                  "    pm.expect(pm.response.json()).to.include({ available: 4998, reserved: 0, sold: 2 });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{eventId}}/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{eventId}}",
+                "availability"
+              ]
+            },
+            "description": "The availability counts the 2 sold tickets, so they are no longer available."
+          },
+          "response": [
+            {
+              "name": "Retrieve availability - after the sale",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{eventId}}/availability",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{eventId}}",
+                    "availability"
+                  ]
+                },
+                "description": "The availability counts the 2 sold tickets, so they are no longer available."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"capacity\": 5000,\n  \"available\": 4998,\n  \"reserved\": 0,\n  \"pendingConfirmation\": 0,\n  \"sold\": 2,\n  \"complimentary\": 0,\n  \"asOf\": \"2026-10-11T12:05:00Z\"\n}"
             }
           ]
         },
