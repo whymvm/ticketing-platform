@@ -13,6 +13,11 @@ output "order_history_table_name" {
   value       = module.data.order_history_table_name
 }
 
+output "idempotency_table_name" {
+  description = "Idempotency table name (TABLE_PREFIX + idempotency)."
+  value       = module.data.idempotency_table_name
+}
+
 output "queue_urls" {
   description = "Main queue URLs."
   value       = module.messaging.queue_urls

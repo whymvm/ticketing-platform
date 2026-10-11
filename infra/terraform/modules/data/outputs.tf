@@ -27,3 +27,13 @@ output "order_history_table_arn" {
   description = "ARN of the order history table (for IAM policies)."
   value       = aws_dynamodb_table.order_history.arn
 }
+
+output "idempotency_table_name" {
+  description = "Name of the idempotency table."
+  value       = aws_dynamodb_table.idempotency.name
+}
+
+output "idempotency_table_arn" {
+  description = "ARN of the idempotency table (for IAM policies)."
+  value       = aws_dynamodb_table.idempotency.arn
+}
