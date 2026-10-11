@@ -35,9 +35,12 @@ class ComplimentaryOrderTest {
 
     @Test
     void followsTheSameRulesAsAnOrder() {
-        assertThatThrownBy(() -> ComplimentaryOrder.issue("o-1", "e-1", new NewComplimentary("guest-001", 0), NOW))
+        NewComplimentary noTickets = new NewComplimentary("guest-001", 0);
+        NewComplimentary noRecipient = new NewComplimentary(" ", 1);
+
+        assertThatThrownBy(() -> ComplimentaryOrder.issue("o-1", "e-1", noTickets, NOW))
                 .isInstanceOf(InvalidOrderQuantityException.class);
-        assertThatThrownBy(() -> ComplimentaryOrder.issue("o-1", "e-1", new NewComplimentary(" ", 1), NOW))
+        assertThatThrownBy(() -> ComplimentaryOrder.issue("o-1", "e-1", noRecipient, NOW))
                 .isInstanceOf(InvalidCustomerException.class);
     }
 }

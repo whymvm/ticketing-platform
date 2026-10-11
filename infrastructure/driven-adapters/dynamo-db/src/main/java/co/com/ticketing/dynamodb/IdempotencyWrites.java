@@ -3,7 +3,6 @@ package co.com.ticketing.dynamodb;
 import co.com.ticketing.model.order.IdempotencyRecord;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.Put;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
 
 import java.util.Map;
@@ -20,16 +19,15 @@ final class IdempotencyWrites {
     }
 
     // The key is taken only if nobody has it, or if its record already expired but DynamoDB did not delete it yet
-    static TransactWriteItem claim(String tableName, IdempotencyRecord record) {
+    static TransactWriteItem claim(String tableName, IdempotencyRecord idempotencyRecord) {
         return TransactWriteItem.builder()
-                .put(Put.builder()
+                .put(put -> put
                         .tableName(tableName)
-                        .item(SCHEMA.itemToMap(IdempotencyEntity.from(record), true))
+                        .item(SCHEMA.itemToMap(IdempotencyEntity.from(idempotencyRecord), true))
                         .conditionExpression("attribute_not_exists(#key) OR #ttl < :now")
                         .expressionAttributeNames(Map.of("#key", "idempotencyKey", "#ttl", "ttl"))
                         .expressionAttributeValues(Map.of(":now",
-                                AttributeValue.fromN(String.valueOf(record.createdAt().getEpochSecond()))))
-                        .build())
+                                AttributeValue.fromN(String.valueOf(idempotencyRecord.createdAt().getEpochSecond())))))
                 .build();
     }
 }

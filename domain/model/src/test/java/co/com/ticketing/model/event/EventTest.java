@@ -6,6 +6,7 @@ import co.com.ticketing.model.exception.InvalidEventCapacityException;
 import co.com.ticketing.model.exception.InvalidEventNameException;
 import co.com.ticketing.model.exception.InvalidEventScheduleException;
 import co.com.ticketing.model.exception.InvalidEventVenueException;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
@@ -33,7 +34,7 @@ class EventTest {
 
     @Test
     void createRejectsEventStartingInThePast() {
-        assertThatThrownBy(() -> Event.create("e-1", new NewEvent("Concert", "Arena", NOW, FINISHES_AT, 10), NOW))
+        assertThatThrownBy(creating(new NewEvent("Concert", "Arena", NOW, FINISHES_AT, 10)))
                 .isInstanceOf(EventStartsInThePastException.class)
                 .hasMessage("startsAt must be in the future but was " + NOW);
     }
@@ -60,7 +61,9 @@ class EventTest {
 
     @Test
     void storedEventsAlsoEnforceTheInvariants() {
-        assertThatThrownBy(() -> new Event("e-1", " ", "Arena", STARTS_AT, FINISHES_AT, 10, Inventory.initial(10), NOW))
+        Inventory inventory = Inventory.initial(10);
+
+        assertThatThrownBy(() -> new Event("e-1", " ", "Arena", STARTS_AT, FINISHES_AT, 10, inventory, NOW))
                 .isInstanceOf(InvalidEventNameException.class);
     }
 
@@ -81,8 +84,7 @@ class EventTest {
 
     @Test
     void createRejectsMissingCapacity() {
-        assertThatThrownBy(() -> Event.create("e-1",
-                new NewEvent("Concert", "Arena", STARTS_AT, FINISHES_AT, null), NOW))
+        assertThatThrownBy(creating(new NewEvent("Concert", "Arena", STARTS_AT, FINISHES_AT, null)))
                 .isInstanceOf(InvalidEventCapacityException.class)
                 .hasMessage("capacity must be greater than zero but was null");
     }
@@ -90,8 +92,7 @@ class EventTest {
     @ParameterizedTest
     @ValueSource(ints = {0, -1})
     void rejectsNonPositiveCapacity(int capacity) {
-        assertThatThrownBy(() -> Event.create("e-1",
-                new NewEvent("Concert", "Arena", STARTS_AT, FINISHES_AT, capacity), NOW))
+        assertThatThrownBy(creating(new NewEvent("Concert", "Arena", STARTS_AT, FINISHES_AT, capacity)))
                 .isInstanceOf(InvalidEventCapacityException.class);
     }
 
@@ -99,7 +100,7 @@ class EventTest {
     @NullAndEmptySource
     @ValueSource(strings = {"   "})
     void rejectsBlankName(String name) {
-        assertThatThrownBy(() -> Event.create("e-1", new NewEvent(name, "Arena", STARTS_AT, FINISHES_AT, 10), NOW))
+        assertThatThrownBy(creating(new NewEvent(name, "Arena", STARTS_AT, FINISHES_AT, 10)))
                 .isInstanceOf(InvalidEventNameException.class);
     }
 
@@ -107,28 +108,33 @@ class EventTest {
     void rejectsTooLongVenue() {
         String venue = "v".repeat(Event.MAX_TEXT_LENGTH + 1);
 
-        assertThatThrownBy(() -> Event.create("e-1", new NewEvent("Concert", venue, STARTS_AT, FINISHES_AT, 10), NOW))
+        assertThatThrownBy(creating(new NewEvent("Concert", venue, STARTS_AT, FINISHES_AT, 10)))
                 .isInstanceOf(InvalidEventVenueException.class)
                 .hasMessage("venue must not be blank and must have at most 200 characters");
     }
 
     @Test
     void rejectsFinishNotAfterStart() {
-        assertThatThrownBy(() -> Event.create("e-1", new NewEvent("Concert", "Arena", STARTS_AT, STARTS_AT, 10), NOW))
+        assertThatThrownBy(creating(new NewEvent("Concert", "Arena", STARTS_AT, STARTS_AT, 10)))
                 .isInstanceOf(InvalidEventScheduleException.class);
     }
 
     @Test
     void rejectsMissingSchedule() {
-        assertThatThrownBy(() -> Event.create("e-1", new NewEvent("Concert", "Arena", null, FINISHES_AT, 10), NOW))
+        assertThatThrownBy(creating(new NewEvent("Concert", "Arena", null, FINISHES_AT, 10)))
                 .isInstanceOf(InvalidEventScheduleException.class);
-        assertThatThrownBy(() -> Event.create("e-1", new NewEvent("Concert", "Arena", STARTS_AT, null, 10), NOW))
+        assertThatThrownBy(creating(new NewEvent("Concert", "Arena", STARTS_AT, null, 10)))
                 .isInstanceOf(InvalidEventScheduleException.class);
     }
 
     @Test
     void businessExceptionsCarryNoStackTrace() {
-        assertThatThrownBy(() -> Event.create("e-1", new NewEvent("Concert", "Arena", STARTS_AT, FINISHES_AT, 0), NOW))
+        assertThatThrownBy(creating(new NewEvent("Concert", "Arena", STARTS_AT, FINISHES_AT, 0)))
                 .satisfies(error -> assertThat(error.getStackTrace()).isEmpty());
+    }
+
+    // Only Event.create runs inside the lambda, so the assertion cannot pass because of another call
+    private static ThrowingCallable creating(NewEvent newEvent) {
+        return () -> Event.create("e-1", newEvent, NOW);
     }
 }

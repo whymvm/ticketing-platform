@@ -88,12 +88,12 @@ class MicrometerMetricPublisherTest {
 
     @SuppressWarnings("unchecked")
     private static <T> MetricRecord<T> metricRecord(String name, T value) {
-        MetricRecord<T> record = mock(MetricRecord.class);
+        MetricRecord<T> metricRecord = mock(MetricRecord.class);
         SdkMetric<T> metric = mock(SdkMetric.class);
         when(metric.name()).thenReturn(name);
-        when(record.metric()).thenReturn(metric);
-        when(record.value()).thenReturn(value);
-        return record;
+        when(metricRecord.metric()).thenReturn(metric);
+        when(metricRecord.value()).thenReturn(value);
+        return metricRecord;
     }
 
     private static MetricCollection metricCollectionOf(MetricRecord<?>... records) {

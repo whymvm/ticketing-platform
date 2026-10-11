@@ -87,9 +87,9 @@ class IssueComplimentaryUseCaseTest {
                 })
                 .verifyComplete();
 
-        ArgumentCaptor<IdempotencyRecord> record = ArgumentCaptor.forClass(IdempotencyRecord.class);
-        verify(complimentaryIssuer).issue(any(ComplimentaryOrder.class), record.capture());
-        assertThat(record.getValue().key()).isEqualTo(SCOPED_KEY);
+        ArgumentCaptor<IdempotencyRecord> savedRecord = ArgumentCaptor.forClass(IdempotencyRecord.class);
+        verify(complimentaryIssuer).issue(any(ComplimentaryOrder.class), savedRecord.capture());
+        assertThat(savedRecord.getValue().key()).isEqualTo(SCOPED_KEY);
     }
 
     @Test

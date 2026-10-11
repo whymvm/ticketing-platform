@@ -111,7 +111,9 @@ class OrderTest {
     void confirmRejectsAnExpiredReservationEvenBeforeItsTicketsAreReleased() {
         ReservedOrder reserved = QUEUED.reserve(NOW, Duration.ofMinutes(10));
 
-        assertThatThrownBy(() -> reserved.confirm(NOW.plus(Duration.ofMinutes(10))))
+        Instant afterTheReservation = NOW.plus(Duration.ofMinutes(10));
+
+        assertThatThrownBy(() -> reserved.confirm(afterTheReservation))
                 .isInstanceOf(ReservationExpiredException.class)
                 .hasMessage("the reservation of order o-1 has expired");
     }

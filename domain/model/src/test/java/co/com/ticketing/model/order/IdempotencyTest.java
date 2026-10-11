@@ -49,7 +49,9 @@ class IdempotencyTest {
 
     @Test
     void rejectsKeysLongerThanSixtyFourCharacters() {
-        assertThatThrownBy(() -> new IdempotencyKey("c-1", "x".repeat(IdempotencyKey.MAX_LENGTH + 1)))
+        String tooLong = "x".repeat(IdempotencyKey.MAX_LENGTH + 1);
+
+        assertThatThrownBy(() -> new IdempotencyKey("c-1", tooLong))
                 .isInstanceOf(InvalidIdempotencyKeyException.class);
         assertThat(new IdempotencyKey("c-1", "x".repeat(IdempotencyKey.MAX_LENGTH)).value()).hasSize(64);
     }
@@ -58,14 +60,14 @@ class IdempotencyTest {
     void theRecordPointsToTheOrderAndLastsTwentyFourHours() {
         QueuedOrder order = QueuedOrder.create("o-1", new NewOrder("e-1", 2), "c-1", NOW);
 
-        IdempotencyRecord record = IdempotencyRecord.of(KEY, order);
+        IdempotencyRecord idempotencyRecord = IdempotencyRecord.of(KEY, order);
 
-        assertThat(record.key()).isEqualTo("c-1#key-0001");
-        assertThat(record.orderId()).isEqualTo("o-1");
-        assertThat(record.expiresAt()).isEqualTo(NOW.plus(Duration.ofHours(24)));
-        assertThat(record.isExpiredAt(NOW.plus(Duration.ofHours(23)))).isFalse();
-        assertThat(record.isExpiredAt(NOW.plus(Duration.ofHours(24)))).isTrue();
-        assertThat(record.requestFingerprint()).hasSize(64).matches("[0-9a-f]+");
+        assertThat(idempotencyRecord.key()).isEqualTo("c-1#key-0001");
+        assertThat(idempotencyRecord.orderId()).isEqualTo("o-1");
+        assertThat(idempotencyRecord.expiresAt()).isEqualTo(NOW.plus(Duration.ofHours(24)));
+        assertThat(idempotencyRecord.isExpiredAt(NOW.plus(Duration.ofHours(23)))).isFalse();
+        assertThat(idempotencyRecord.isExpiredAt(NOW.plus(Duration.ofHours(24)))).isTrue();
+        assertThat(idempotencyRecord.requestFingerprint()).hasSize(64).matches("[0-9a-f]+");
     }
 
     @Test

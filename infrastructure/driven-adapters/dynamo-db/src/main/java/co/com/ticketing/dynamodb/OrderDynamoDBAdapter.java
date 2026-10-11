@@ -29,7 +29,6 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
-import software.amazon.awssdk.services.dynamodb.model.Update;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -68,10 +67,10 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
 
     // The order, its first history entry and the idempotency key are written together, or none of them
     @Override
-    public Mono<QueuedOrder> save(QueuedOrder order, IdempotencyRecord record) {
+    public Mono<QueuedOrder> save(QueuedOrder order, IdempotencyRecord idempotencyRecord) {
         return transaction(OrderWrites.newOrder(tables.orders(), order), order,
-                        IdempotencyWrites.claim(tables.idempotency(), record))
-                .onErrorMap(TransactionCanceledException.class, error -> saveCancellationCause(error, order, record))
+                        IdempotencyWrites.claim(tables.idempotency(), idempotencyRecord))
+                .onErrorMap(TransactionCanceledException.class, error -> saveCancellationCause(error, order, idempotencyRecord))
                 .thenReturn(order);
     }
 
@@ -108,7 +107,7 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
 
     private Mono<Void> transaction(TransactWriteItem orderChange, Order order, TransactWriteItem... otherItems) {
         List<TransactWriteItem> items = new ArrayList<>(List.of(orderChange,
-                OrderHistoryWrites.record(tables.orderHistory(), order)));
+                OrderHistoryWrites.append(tables.orderHistory(), order)));
         items.addAll(List.of(otherItems));
         return Mono.fromFuture(() -> client.transactWriteItems(TransactWriteItemsRequest.builder()
                         .transactItems(items)
@@ -118,7 +117,8 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
 
     // Partial update: only the status, the reason and the update time change, and only if the order is still queued
     private TransactWriteItem rejection(RejectedOrder order) {
-        return TransactWriteItem.builder().update(Update.builder()
+        return TransactWriteItem.builder()
+                .update(update -> update
                         .tableName(tables.orders())
                         .key(Map.of("id", AttributeValue.fromS(order.details().id())))
                         .updateExpression("SET #status = :rejected, #rejectionReason = :rejectionReason, "
@@ -130,15 +130,14 @@ public class OrderDynamoDBAdapter implements OrderCreator, OrderRetriever, Order
                                 ":rejected", AttributeValue.fromS(OrderStatus.REJECTED.name()),
                                 QUEUED_VALUE, AttributeValue.fromS(OrderStatus.QUEUED.name()),
                                 ":rejectionReason", AttributeValue.fromS(order.rejectionReason().name()),
-                                ":updatedAt", AttributeValue.fromS(order.updatedAt().toString())))
-                        .build())
+                                ":updatedAt", AttributeValue.fromS(order.updatedAt().toString()))))
                 .build();
     }
 
     private static Throwable saveCancellationCause(TransactionCanceledException error, QueuedOrder order,
-                                                   IdempotencyRecord record) {
+                                                   IdempotencyRecord idempotencyRecord) {
         if (TransactionCancellation.failedCondition(error, IDEMPOTENCY_ITEM)) {
-            return new DuplicateRequestException(record.key());
+            return new DuplicateRequestException(idempotencyRecord.key());
         }
         if (TransactionCancellation.failedCondition(error, ORDER_ITEM)) {
             return new OrderAlreadyExistsException(order.details().id());

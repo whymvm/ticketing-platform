@@ -24,7 +24,6 @@ import software.amazon.awssdk.core.async.SdkPublisher;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncIndex;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
-import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.enhanced.dynamodb.model.GetItemEnhancedRequest;
 import software.amazon.awssdk.enhanced.dynamodb.model.Page;
@@ -304,7 +303,7 @@ class OrderDynamoDBAdapterTest {
                 .expectNextCount(2)
                 .verifyComplete();
 
-        verify(expiringOrders, times(ExpiringOrdersIndex.SHARDS)).query(any(QueryConditional.class));
+        verify(expiringOrders, times(ExpiringOrdersIndex.SHARD_COUNT)).query(any(QueryConditional.class));
     }
 
     @Test

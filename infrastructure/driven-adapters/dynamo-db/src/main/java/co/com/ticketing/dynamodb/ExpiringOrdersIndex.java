@@ -11,16 +11,16 @@ import java.util.stream.IntStream;
 final class ExpiringOrdersIndex {
 
     static final String NAME = "expiring-orders";
-    static final int SHARDS = 4;
+    static final int SHARD_COUNT = 4;
 
     private ExpiringOrdersIndex() {
     }
 
     static String shardOf(String orderId) {
-        return String.valueOf(Math.floorMod(orderId.hashCode(), SHARDS));
+        return String.valueOf(Math.floorMod(orderId.hashCode(), SHARD_COUNT));
     }
 
     static List<String> shards() {
-        return IntStream.range(0, SHARDS).mapToObj(String::valueOf).toList();
+        return IntStream.range(0, SHARD_COUNT).mapToObj(String::valueOf).toList();
     }
 }

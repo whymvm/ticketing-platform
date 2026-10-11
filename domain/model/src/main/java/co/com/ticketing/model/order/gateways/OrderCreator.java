@@ -14,9 +14,9 @@ public interface OrderCreator {
      * overwrites an existing order. Emits DuplicateRequestException if another request saved the same key first.
      *
      * @param order  the order to save
-     * @param record the idempotency record of the request that placed it
+     * @param idempotencyRecord the idempotency record of the request that placed it
      * @return the saved order
      */
-    Mono<QueuedOrder> save(QueuedOrder order, IdempotencyRecord record);
+    Mono<QueuedOrder> save(QueuedOrder order, IdempotencyRecord idempotencyRecord);
 
 }
