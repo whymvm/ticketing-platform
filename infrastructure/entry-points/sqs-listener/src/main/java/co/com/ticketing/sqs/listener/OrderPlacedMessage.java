@@ -8,12 +8,12 @@ import java.util.Optional;
  */
 record OrderPlacedMessage(String type, String orderId, Instant occurredAt) {
 
-    static final String TYPE = "ORDER_PLACED";
+    static final String ORDER_PLACED = "ORDER_PLACED";
 
     /**
      * Tells if the message is an ORDER_PLACED event with an order id.
      */
     boolean isValid() {
-        return TYPE.equals(type) && Optional.ofNullable(orderId).filter(id -> !id.isBlank()).isPresent();
+        return ORDER_PLACED.equals(type) && Optional.ofNullable(orderId).filter(id -> !id.isBlank()).isPresent();
     }
 }

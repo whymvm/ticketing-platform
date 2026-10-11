@@ -97,10 +97,10 @@ class PlaceOrderUseCaseTest {
                 .verifyComplete();
 
         ArgumentCaptor<QueuedOrder> order = ArgumentCaptor.forClass(QueuedOrder.class);
-        ArgumentCaptor<IdempotencyRecord> record = ArgumentCaptor.forClass(IdempotencyRecord.class);
-        verify(orderCreator).save(order.capture(), record.capture());
-        assertThat(record.getValue().key()).isEqualTo(SCOPED_KEY);
-        assertThat(record.getValue().orderId()).isEqualTo(order.getValue().details().id());
+        ArgumentCaptor<IdempotencyRecord> savedRecord = ArgumentCaptor.forClass(IdempotencyRecord.class);
+        verify(orderCreator).save(order.capture(), savedRecord.capture());
+        assertThat(savedRecord.getValue().key()).isEqualTo(SCOPED_KEY);
+        assertThat(savedRecord.getValue().orderId()).isEqualTo(order.getValue().details().id());
         verify(orderPublisher).publish(OrderPlaced.from(order.getValue()));
     }
 

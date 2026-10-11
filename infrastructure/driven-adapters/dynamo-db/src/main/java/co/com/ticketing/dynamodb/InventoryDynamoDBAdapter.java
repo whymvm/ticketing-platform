@@ -27,7 +27,6 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest;
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
-import software.amazon.awssdk.services.dynamodb.model.Update;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -104,22 +103,22 @@ public class InventoryDynamoDBAdapter implements InventoryUpdater, Complimentary
 
     // The tickets, the new order, its history entry and the idempotency key are written together, or none of them
     @Override
-    public Mono<ComplimentaryOrder> issue(ComplimentaryOrder order, IdempotencyRecord record) {
+    public Mono<ComplimentaryOrder> issue(ComplimentaryOrder order, IdempotencyRecord idempotencyRecord) {
         OrderDetails details = order.details();
         return Mono.fromFuture(() -> client.transactWriteItems(TransactWriteItemsRequest.builder()
                         .transactItems(moveTickets(details, AVAILABLE, COMPLIMENTARY),
                                 OrderWrites.newOrder(tables.orders(), order),
-                                OrderHistoryWrites.record(tables.orderHistory(), order),
-                                IdempotencyWrites.claim(tables.idempotency(), record))
+                                OrderHistoryWrites.append(tables.orderHistory(), order),
+                                IdempotencyWrites.claim(tables.idempotency(), idempotencyRecord))
                         .build()))
-                .onErrorMap(TransactionCanceledException.class, error -> issueCancellationCause(error, details, record))
+                .onErrorMap(TransactionCanceledException.class, error -> issueCancellationCause(error, details, idempotencyRecord))
                 .thenReturn(order);
     }
 
     private static Throwable issueCancellationCause(TransactionCanceledException error, OrderDetails details,
-                                                    IdempotencyRecord record) {
+                                                    IdempotencyRecord idempotencyRecord) {
         if (TransactionCancellation.failedCondition(error, IDEMPOTENCY_ITEM)) {
-            return new DuplicateRequestException(record.key());
+            return new DuplicateRequestException(idempotencyRecord.key());
         }
         if (TransactionCancellation.failedCondition(error, EVENT_ITEM)) {
             return new TicketsSoldOutException(details.eventId(), details.quantity());
@@ -136,7 +135,7 @@ public class InventoryDynamoDBAdapter implements InventoryUpdater, Complimentary
     private <T extends Order> Mono<T> transaction(TransactWriteItem event, TransactWriteItem orderChange, T order,
                                                  Supplier<RuntimeException> eventConditionFailed) {
         return Mono.fromFuture(() -> client.transactWriteItems(TransactWriteItemsRequest.builder()
-                        .transactItems(event, orderChange, OrderHistoryWrites.record(tables.orderHistory(), order))
+                        .transactItems(event, orderChange, OrderHistoryWrites.append(tables.orderHistory(), order))
                         .build()))
                 .onErrorMap(TransactionCanceledException.class,
                         error -> cancellationCause(error, order.details(), eventConditionFailed))
@@ -145,15 +144,15 @@ public class InventoryDynamoDBAdapter implements InventoryUpdater, Complimentary
 
     // Partial update of the event: only two counters change, and only if the source counter has enough tickets
     private TransactWriteItem moveTickets(OrderDetails details, String from, String to) {
-        return TransactWriteItem.builder().update(Update.builder()
+        return TransactWriteItem.builder()
+                .update(update -> update
                         .tableName(tables.events())
                         .key(Map.of("id", AttributeValue.fromS(details.eventId())))
                         .updateExpression("SET #from = #from - :quantity, #to = #to + :quantity")
                         .conditionExpression("#from >= :quantity")
                         .expressionAttributeNames(Map.of("#from", from, "#to", to))
                         .expressionAttributeValues(Map.of(":quantity",
-                                AttributeValue.fromN(String.valueOf(details.quantity()))))
-                        .build())
+                                AttributeValue.fromN(String.valueOf(details.quantity())))))
                 .build();
     }
 
@@ -198,14 +197,14 @@ public class InventoryDynamoDBAdapter implements InventoryUpdater, Complimentary
         allValues.put(":newStatus", AttributeValue.fromS(order.status().name()));
         allValues.put(":expected", AttributeValue.fromS(expected.name()));
         allValues.put(":updatedAt", AttributeValue.fromS(order.updatedAt().toString()));
-        return TransactWriteItem.builder().update(Update.builder()
+        return TransactWriteItem.builder()
+                .update(update -> update
                         .tableName(tables.orders())
                         .key(Map.of("id", AttributeValue.fromS(order.details().id())))
                         .updateExpression(updateExpression)
                         .conditionExpression(STATUS_NAME + " = :expected")
                         .expressionAttributeNames(allNames)
-                        .expressionAttributeValues(allValues)
-                        .build())
+                        .expressionAttributeValues(allValues))
                 .build();
     }
 

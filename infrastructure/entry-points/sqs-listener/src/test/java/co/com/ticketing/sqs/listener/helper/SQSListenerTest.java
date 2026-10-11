@@ -17,6 +17,7 @@ import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
 
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -24,7 +25,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
@@ -180,9 +183,9 @@ class SQSListenerTest {
         listener.stop(stopped::countDown);
         openPoll.complete(ReceiveMessageResponse.builder().build());
         assertThat(stopped.await(WAIT_MS, TimeUnit.MILLISECONDS)).isTrue();
-        Thread.sleep(200);
 
-        verify(client, times(1)).receiveMessage(any(ReceiveMessageRequest.class));
+        // Still a single poll a while after stopping
+        verify(client, after(200).times(1)).receiveMessage(any(ReceiveMessageRequest.class));
     }
 
     @Test
@@ -216,12 +219,8 @@ class SQSListenerTest {
         });
     }
 
-    private void waitUntilProcessed(int count) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + WAIT_MS;
-        while (processed.get() < count && System.currentTimeMillis() < deadline) {
-            Thread.sleep(10);
-        }
-        assertThat(processed).hasValue(count);
+    private void waitUntilProcessed(int count) {
+        await().atMost(Duration.ofMillis(WAIT_MS)).untilAsserted(() -> assertThat(processed).hasValue(count));
     }
 
     private void allowDeletes() {

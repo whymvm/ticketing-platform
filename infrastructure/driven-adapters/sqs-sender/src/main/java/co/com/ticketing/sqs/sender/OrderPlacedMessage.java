@@ -10,9 +10,9 @@ import java.time.Instant;
  */
 record OrderPlacedMessage(String type, String orderId, Instant occurredAt) {
 
-    static final String TYPE = "ORDER_PLACED";
+    static final String ORDER_PLACED = "ORDER_PLACED";
 
     static OrderPlacedMessage from(OrderPlaced event) {
-        return new OrderPlacedMessage(TYPE, event.orderId(), event.occurredAt());
+        return new OrderPlacedMessage(ORDER_PLACED, event.orderId(), event.occurredAt());
     }
 }

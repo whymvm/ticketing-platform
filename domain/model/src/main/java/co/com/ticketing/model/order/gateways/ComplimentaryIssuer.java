@@ -15,9 +15,9 @@ public interface ComplimentaryIssuer {
      * available tickets, and DuplicateRequestException if another request with the same key issued them first.
      *
      * @param order  the complimentary order
-     * @param record the idempotency record of the request
+     * @param idempotencyRecord the idempotency record of the request
      * @return the complimentary order
      */
-    Mono<ComplimentaryOrder> issue(ComplimentaryOrder order, IdempotencyRecord record);
+    Mono<ComplimentaryOrder> issue(ComplimentaryOrder order, IdempotencyRecord idempotencyRecord);
 
 }

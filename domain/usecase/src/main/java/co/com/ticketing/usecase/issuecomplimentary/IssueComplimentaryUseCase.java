@@ -47,15 +47,15 @@ public class IssueComplimentaryUseCase {
      * concurrent write on the event keeps getting in the way.
      */
     public Mono<OrderPlacement> run(String eventId, NewComplimentary request, String idempotencyKey) {
-        return Mono.fromCallable(() -> Request.of(clock.instant(), eventId, request, idempotencyKey))
-                .flatMap(issue -> findRecord(issue)
-                        .flatMap(existing -> replay(existing, issue.record()))
-                        .switchIfEmpty(Mono.defer(() -> issue(issue))));
+        return Mono.fromCallable(() -> Issuance.of(clock.instant(), eventId, request, idempotencyKey))
+                .flatMap(issuance -> findRecord(issuance)
+                        .flatMap(existing -> replay(existing, issuance.idempotencyRecord()))
+                        .switchIfEmpty(Mono.defer(() -> issue(issuance))));
     }
 
-    private Mono<OrderPlacement> issue(Request request) {
-        return requireOpenEvent(request)
-                .then(Mono.defer(() -> complimentaryIssuer.issue(request.order(), request.record()))
+    private Mono<OrderPlacement> issue(Issuance issuance) {
+        return requireOpenEvent(issuance)
+                .then(Mono.defer(() -> complimentaryIssuer.issue(issuance.order(), issuance.idempotencyRecord()))
                         // Reservations update the same event item, so a concurrent one can cancel the transaction.
                         // Nothing was written then, so issuing again is safe
                         .retryWhen(Retry.backoff(MAX_RETRIES, FIRST_RETRY_DELAY)
@@ -63,22 +63,22 @@ public class IssueComplimentaryUseCase {
                                 .onRetryExhaustedThrow((_, signal) -> signal.failure())))
                 .map(OrderPlacement::created)
                 // Another request with the same key won the race: answer with the order it created
-                .onErrorResume(DuplicateRequestException.class, _ -> findRecord(request)
-                        .flatMap(existing -> replay(existing, request.record())));
+                .onErrorResume(DuplicateRequestException.class, _ -> findRecord(issuance)
+                        .flatMap(existing -> replay(existing, issuance.idempotencyRecord())));
     }
 
-    private Mono<Void> requireOpenEvent(Request request) {
-        String eventId = request.order().details().eventId();
+    private Mono<Void> requireOpenEvent(Issuance issuance) {
+        String eventId = issuance.order().details().eventId();
         return eventRetriever.findById(eventId)
                 .switchIfEmpty(Mono.error(() -> new EventNotFoundException(eventId)))
-                .filter(event -> event.isOpenAt(request.now()))
+                .filter(event -> event.isOpenAt(issuance.now()))
                 .switchIfEmpty(Mono.error(() -> new EventClosedException(eventId)))
                 .then();
     }
 
-    private Mono<IdempotencyRecord> findRecord(Request request) {
-        return idempotencyRecordRetriever.findByKey(request.record().key())
-                .filter(existing -> !existing.isExpiredAt(request.now()));
+    private Mono<IdempotencyRecord> findRecord(Issuance issuance) {
+        return idempotencyRecordRetriever.findByKey(issuance.idempotencyRecord().key())
+                .filter(existing -> !existing.isExpiredAt(issuance.now()));
     }
 
     private Mono<OrderPlacement> replay(IdempotencyRecord existing, IdempotencyRecord current) {
@@ -90,13 +90,13 @@ public class IssueComplimentaryUseCase {
                 .map(OrderPlacement::replayed);
     }
 
-    private record Request(Instant now, ComplimentaryOrder order, IdempotencyRecord record) {
+    private record Issuance(Instant now, ComplimentaryOrder order, IdempotencyRecord idempotencyRecord) {
 
         // Validates the key and the order once, before anything is read or written
-        static Request of(Instant now, String eventId, NewComplimentary request, String idempotencyKey) {
+        static Issuance of(Instant now, String eventId, NewComplimentary request, String idempotencyKey) {
             IdempotencyKey key = new IdempotencyKey(ORGANIZER, idempotencyKey);
             ComplimentaryOrder order = ComplimentaryOrder.issue(UUID.randomUUID().toString(), eventId, request, now);
-            return new Request(now, order, IdempotencyRecord.of(key, order));
+            return new Issuance(now, order, IdempotencyRecord.of(key, order));
         }
     }
 }

@@ -41,25 +41,25 @@ public class PlaceOrderUseCase {
      * invalid, the key was used with other data, the event does not exist or it already started.
      */
     public Mono<OrderPlacement> run(NewOrder newOrder, String customerId, String idempotencyKey) {
-        return Mono.fromCallable(() -> Request.of(clock.instant(), newOrder, customerId, idempotencyKey))
-                .flatMap(request -> findRecord(request)
-                        .flatMap(existing -> replay(existing, request.record()))
-                        .switchIfEmpty(Mono.defer(() -> place(request))));
+        return Mono.fromCallable(() -> Attempt.of(clock.instant(), newOrder, customerId, idempotencyKey))
+                .flatMap(attempt -> findRecord(attempt)
+                        .flatMap(existing -> replay(existing, attempt.idempotencyRecord()))
+                        .switchIfEmpty(Mono.defer(() -> place(attempt))));
     }
 
-    private Mono<OrderPlacement> place(Request request) {
-        return requireOpenEvent(request.order())
-                .flatMap(order -> orderCreator.save(order, request.record()))
+    private Mono<OrderPlacement> place(Attempt attempt) {
+        return requireOpenEvent(attempt.order())
+                .flatMap(order -> orderCreator.save(order, attempt.idempotencyRecord()))
                 .flatMap(order -> orderPublisher.publish(OrderPlaced.from(order)).thenReturn(OrderPlacement.created(order)))
                 // Another request with the same key won the race: answer with the order it created
-                .onErrorResume(DuplicateRequestException.class, _ -> findRecord(request)
-                        .flatMap(existing -> replay(existing, request.record())));
+                .onErrorResume(DuplicateRequestException.class, _ -> findRecord(attempt)
+                        .flatMap(existing -> replay(existing, attempt.idempotencyRecord())));
     }
 
     // An expired key may still be stored for a while, because DynamoDB deletes expired items late
-    private Mono<IdempotencyRecord> findRecord(Request request) {
-        return idempotencyRecordRetriever.findByKey(request.record().key())
-                .filter(existing -> !existing.isExpiredAt(request.now()));
+    private Mono<IdempotencyRecord> findRecord(Attempt attempt) {
+        return idempotencyRecordRetriever.findByKey(attempt.idempotencyRecord().key())
+                .filter(existing -> !existing.isExpiredAt(attempt.now()));
     }
 
     private Mono<OrderPlacement> replay(IdempotencyRecord existing, IdempotencyRecord current) {
@@ -80,13 +80,13 @@ public class PlaceOrderUseCase {
                 .thenReturn(order);
     }
 
-    private record Request(Instant now, QueuedOrder order, IdempotencyRecord record) {
+    private record Attempt(Instant now, QueuedOrder order, IdempotencyRecord idempotencyRecord) {
 
         // Validates the key and the order once, before anything is read or written
-        static Request of(Instant now, NewOrder newOrder, String customerId, String idempotencyKey) {
+        static Attempt of(Instant now, NewOrder newOrder, String customerId, String idempotencyKey) {
             IdempotencyKey key = new IdempotencyKey(customerId, idempotencyKey);
             QueuedOrder order = QueuedOrder.create(UUID.randomUUID().toString(), newOrder, customerId, now);
-            return new Request(now, order, IdempotencyRecord.of(key, order));
+            return new Attempt(now, order, IdempotencyRecord.of(key, order));
         }
     }
 }

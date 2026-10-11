@@ -29,13 +29,13 @@ public class IdempotencyEntity {
     /**
      * Builds the item from an idempotency record.
      */
-    public static IdempotencyEntity from(IdempotencyRecord record) {
+    public static IdempotencyEntity from(IdempotencyRecord idempotencyRecord) {
         IdempotencyEntity entity = new IdempotencyEntity();
-        entity.setIdempotencyKey(record.key());
-        entity.setRequestFingerprint(record.requestFingerprint());
-        entity.setOrderId(record.orderId());
-        entity.setCreatedAt(record.createdAt());
-        entity.setTtl(record.expiresAt().getEpochSecond());
+        entity.setIdempotencyKey(idempotencyRecord.key());
+        entity.setRequestFingerprint(idempotencyRecord.requestFingerprint());
+        entity.setOrderId(idempotencyRecord.orderId());
+        entity.setCreatedAt(idempotencyRecord.createdAt());
+        entity.setTtl(idempotencyRecord.expiresAt().getEpochSecond());
         return entity;
     }
 

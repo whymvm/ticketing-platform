@@ -3,7 +3,6 @@ package co.com.ticketing.dynamodb;
 import co.com.ticketing.model.order.Order;
 import co.com.ticketing.model.order.OrderHistoryEntry;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
-import software.amazon.awssdk.services.dynamodb.model.Put;
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem;
 
 import java.util.Map;
@@ -20,15 +19,14 @@ final class OrderHistoryWrites {
     }
 
     // The history is append-only: an entry is never overwritten
-    static TransactWriteItem record(String tableName, Order order) {
+    static TransactWriteItem append(String tableName, Order order) {
         OrderHistoryEntry entry = OrderHistoryEntry.of(order);
         return TransactWriteItem.builder()
-                .put(Put.builder()
+                .put(put -> put
                         .tableName(tableName)
                         .item(SCHEMA.itemToMap(OrderHistoryEntity.from(entry), true))
                         .conditionExpression("attribute_not_exists(#sk)")
-                        .expressionAttributeNames(Map.of("#sk", "sk"))
-                        .build())
+                        .expressionAttributeNames(Map.of("#sk", "sk")))
                 .build();
     }
 }

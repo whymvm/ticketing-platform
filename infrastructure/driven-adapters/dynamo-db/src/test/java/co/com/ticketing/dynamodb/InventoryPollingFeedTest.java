@@ -120,7 +120,7 @@ class InventoryPollingFeedTest {
 
     @Test
     void usesOneReadingPerSecondByDefault() {
-        assertThat(InventoryPollingFeed.POLL_INTERVAL).isEqualTo(Duration.ofSeconds(1));
+        assertThat(InventoryPollingFeed.POLL_INTERVAL).hasSeconds(1);
         assertThat(new InventoryPollingFeed(eventRetriever)).isNotNull();
     }
 

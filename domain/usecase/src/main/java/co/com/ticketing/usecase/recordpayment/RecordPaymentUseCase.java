@@ -46,7 +46,7 @@ public class RecordPaymentUseCase {
         return orderRetriever.findById(orderId)
                 .switchIfEmpty(Mono.error(() -> new OrderNotFoundException(orderId)))
                 .flatMap(order -> switch (order) {
-                    case PendingConfirmationOrder pending -> record(pending, notification.result());
+                    case PendingConfirmationOrder pending -> settle(pending, notification.result());
                     case QueuedOrder _, ReservedOrder _, SoldOrder _, RejectedOrder _, ExpiredOrder _,
                          ComplimentaryOrder _ ->
                             alreadyRecorded(order, notification.result());
@@ -54,7 +54,7 @@ public class RecordPaymentUseCase {
     }
 
     // If another process changed the order first (a repeated notification or the scheduler), it is read again
-    private Mono<Order> record(PendingConfirmationOrder pending, PaymentResult result) {
+    private Mono<Order> settle(PendingConfirmationOrder pending, PaymentResult result) {
         Instant now = clock.instant();
         return Mono.defer(() -> switch (result) {
                     case APPROVED -> inventoryUpdater.sellTickets(pending.markPaid(now)).map(Order.class::cast);
