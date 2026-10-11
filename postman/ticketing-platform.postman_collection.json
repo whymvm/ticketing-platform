@@ -1211,7 +1211,21 @@
                   "pm.test('returns the Location of the new order', () => {",
                   "    pm.expect(pm.response.headers.get('Location')).to.eql(`/api/v1/orders/${order.id}`);",
                   "});",
-                  "pm.collectionVariables.set('orderId', order.id);"
+                  "pm.collectionVariables.set('orderId', order.id);",
+                  "pm.test('is a new order, not a replayed one', () => {",
+                  "    pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('false');",
+                  "    pm.expect(pm.response.headers.get('Retry-After')).to.eql('1');",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A new Idempotency-Key for each run of the collection; the retry below sends it again",
+                  "pm.collectionVariables.set('placeOrderKey', pm.variables.replaceIn('{{$guid}}'));"
                 ]
               }
             }
@@ -1226,6 +1240,10 @@
               {
                 "key": "X-Customer-Id",
                 "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{placeOrderKey}}"
               }
             ],
             "url": {
@@ -1263,6 +1281,10 @@
                   {
                     "key": "X-Customer-Id",
                     "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{placeOrderKey}}"
                   }
                 ],
                 "url": {
@@ -1403,6 +1425,221 @@
                 }
               ],
               "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"RESERVED\",\n  \"expiresAt\": \"2026-10-10T12:10:00Z\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Place order - retry with the same key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 202', () => pm.response.to.have.status(202));",
+                  "pm.test('returns the same order, replayed', () => {",
+                  "    pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('orderId'));",
+                  "    pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('true');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{placeOrderKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Sends the same request again with the same Idempotency-Key, as a client does after a timeout. The API returns the same order in its current state, marked with Idempotent-Replayed, and creates nothing new.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order - retry with the same key",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{placeOrderKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Sends the same request again with the same Idempotency-Key, as a client does after a timeout. The API returns the same order in its current state, marked with Idempotent-Replayed, and creates nothing new.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"RESERVED\",\n  \"expiresAt\": \"2026-10-10T12:10:00Z\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\",\n  \"updatedAt\": \"2026-10-10T12:00:00.150Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Place order - same key, another request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 422', () => pm.response.to.have.status(422));",
+                  "pm.test('returns code IDEMPOTENCY_KEY_REUSED', () => pm.expect(pm.response.json().code).to.eql('IDEMPOTENCY_KEY_REUSED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{placeOrderKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Reuses the Idempotency-Key of \"Place order\" with a different quantity. The key already created an order for other data, so the API refuses it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order - same key, another request",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{placeOrderKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Reuses the Idempotency-Key of \"Place order\" with a different quantity. The key already created an order for other data, so the API refuses it.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 3\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Unprocessable Content",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"the Idempotency-Key was already used with a different request\",\n  \"instance\": \"/api/v1/orders\",\n  \"status\": 422,\n  \"title\": \"Unprocessable Content\",\n  \"code\": \"IDEMPOTENCY_KEY_REUSED\"\n}"
             }
           ]
         },
@@ -2106,6 +2343,10 @@
               {
                 "key": "X-Customer-Id",
                 "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
               }
             ],
             "url": {
@@ -2143,6 +2384,10 @@
                   {
                     "key": "X-Customer-Id",
                     "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{$guid}}"
                   }
                 ],
                 "url": {
@@ -2204,6 +2449,10 @@
               {
                 "key": "X-Customer-Id",
                 "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
               }
             ],
             "url": {
@@ -2241,6 +2490,10 @@
                   {
                     "key": "X-Customer-Id",
                     "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{$guid}}"
                   }
                 ],
                 "url": {
@@ -2275,6 +2528,104 @@
                 }
               ],
               "body": "{\n  \"detail\": \"quantity must be between 1 and 6 but was 7\",\n  \"instance\": \"/api/v1/orders\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"INVALID_ORDER_QUANTITY\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Place order - missing key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 400', () => pm.response.to.have.status(400));",
+                  "pm.test('returns code IDEMPOTENCY_KEY_REQUIRED', () => pm.expect(pm.response.json().code).to.eql('IDEMPOTENCY_KEY_REQUIRED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Places an order without an Idempotency-Key. The key is required, so a retry can never create a second order.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order - missing key",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Places an order without an Idempotency-Key. The key is required, so a retry can never create a second order.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"the Idempotency-Key header is required\",\n  \"instance\": \"/api/v1/orders\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"IDEMPOTENCY_KEY_REQUIRED\"\n}"
             }
           ]
         }
@@ -2398,6 +2749,10 @@
               {
                 "key": "X-Customer-Id",
                 "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
               }
             ],
             "url": {
@@ -2435,6 +2790,10 @@
                   {
                     "key": "X-Customer-Id",
                     "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{$guid}}"
                   }
                 ],
                 "url": {
@@ -2866,6 +3225,10 @@
               {
                 "key": "X-Customer-Id",
                 "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
               }
             ],
             "url": {
@@ -2903,6 +3266,10 @@
                   {
                     "key": "X-Customer-Id",
                     "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{$guid}}"
                   }
                 ],
                 "url": {
@@ -2994,6 +3361,10 @@
     },
     {
       "key": "closedEventId",
+      "value": ""
+    },
+    {
+      "key": "placeOrderKey",
       "value": ""
     }
   ]
