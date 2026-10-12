@@ -59,7 +59,7 @@ tasks.register('postmanTest', Exec) {
 
 tasks.register('smokeTest') {
     group = ticketing
-    description = 'Starts the local environment and runs the Postman collection against it, as the CI does.'
+    description = 'Starts the local environment and runs the Postman collection against it (end-to-end test, on demand).'
     dependsOn 'localUp', 'postmanTest'
 }
 
@@ -72,5 +72,16 @@ tasks.register('terraformValidate', Exec) {
             '-w', '/infra',
             '--entrypoint', 'sh',
             'hashicorp/terraform:1.16.3',
-            '-c', 'terraform fmt -check -recursive && cd envs/local && terraform init -backend=false -input=false > /dev/null && terraform validate'
+            '-c', 'terraform fmt -check -recursive && for stack in envs/local envs/prod bootstrap; do ' +
+                    'echo "Validating $stack" && terraform -chdir=$stack init -backend=false -input=false > /dev/null && ' +
+                    'terraform -chdir=$stack validate || exit 1; done'
+}
+
+tasks.register('terraformScan', Exec) {
+    group = ticketing
+    description = 'Scans the Terraform code for security issues with Checkov, the same image and digest the CI uses.'
+    commandLine 'docker', 'run', '--rm',
+            '-v', "${terraformDir}:/tf",
+            'bridgecrew/checkov@sha256:81c3b0cd32f05bb5ac98d3371224dd505419768a76527e1b7ff220a5d91aafcf',
+            '-d', '/tf', '--framework', 'terraform', '--compact', '--quiet', '--skip-path', 'envs/local'
 }

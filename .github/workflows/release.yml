@@ -1,0 +1,134 @@
+# Release: publishes a version when a version tag is pushed. There is no deployment here; that belongs to a CD
+# pipeline (see README §16.5).
+# Gitflow: release/x.y.z is merged into main and main is tagged vX.Y.Z (then merged back into develop). The tag
+# triggers this workflow, which checks that the tagged commit is on main, builds and tests it again, publishes the
+# Docker image to GitHub Packages (ghcr.io) for amd64 and arm64, and creates the GitHub release with its notes.
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+# Read-only by default; each job asks only for what it needs.
+permissions:
+  contents: read
+
+# Never cancel a release in progress.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  verify:
+    name: Verify the tagged commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the history of main, to check where the tag points
+          persist-credentials: false
+
+      # In Gitflow only main is released: a tag on any other branch is rejected
+      - name: Check that the tag is on main
+        run: |
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "::error::${GITHUB_REF_NAME} does not point to a commit of main"
+            exit 1
+          fi
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      # The exact commit that is released is built and tested again before anything is published
+      - name: Build and run the unit tests
+        run: ./gradlew build
+
+  image:
+    name: Publish the Docker image
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write # push to ghcr.io with the workflow token, no personal token
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # QEMU only runs the small runtime stage for arm64: the jar is compiled once, natively (see the Dockerfile)
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Packages
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # vX.Y.Z gives the tags X.Y.Z, X.Y and latest, plus the standard OCI labels (source, revision, version)
+      - name: Compute the image tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      # amd64 for any machine, arm64 for Apple silicon and AWS Graviton. The provenance attestation and the SBOM are
+      # attached to the image, so anyone can check how it was built and what it contains.
+      - name: Build and push the image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deployment/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: Create the GitHub release
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # create the release
+    steps:
+      # How to get the image, followed by the notes that GitHub generates (pull requests merged since the previous tag)
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --verify-tag \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --notes "Docker image (linux/amd64, linux/arm64): \`docker pull ${IMAGE}:${version}\`
+
+          Run it with its infrastructure: \`APP_IMAGE=${IMAGE}:${version} docker compose up --no-build --wait\`"
