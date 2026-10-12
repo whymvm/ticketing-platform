@@ -1,8 +1,18 @@
 resource "aws_dynamodb_table" "events" {
+  # checkov:skip=CKV_AWS_119:DynamoDB always encrypts at rest with an AWS owned key; a customer managed key adds cost and is only needed for compliance
   name                        = "${var.name_prefix}events"
   billing_mode                = "PAY_PER_REQUEST"
   hash_key                    = "id"
   deletion_protection_enabled = var.deletion_protection
+
+  # Cost ceiling for on-demand capacity: requests above it are throttled instead of billed
+  dynamic "on_demand_throughput" {
+    for_each = var.max_request_units == null ? [] : [var.max_request_units]
+    content {
+      max_read_request_units  = on_demand_throughput.value.read
+      max_write_request_units = on_demand_throughput.value.write
+    }
+  }
 
   attribute {
     name = "id"
@@ -18,10 +28,20 @@ resource "aws_dynamodb_table" "events" {
 }
 
 resource "aws_dynamodb_table" "orders" {
+  # checkov:skip=CKV_AWS_119:DynamoDB always encrypts at rest with an AWS owned key; a customer managed key adds cost and is only needed for compliance
   name                        = "${var.name_prefix}orders"
   billing_mode                = "PAY_PER_REQUEST"
   hash_key                    = "id"
   deletion_protection_enabled = var.deletion_protection
+
+  # Cost ceiling for on-demand capacity: requests above it are throttled instead of billed
+  dynamic "on_demand_throughput" {
+    for_each = var.max_request_units == null ? [] : [var.max_request_units]
+    content {
+      max_read_request_units  = on_demand_throughput.value.read
+      max_write_request_units = on_demand_throughput.value.write
+    }
+  }
 
   attribute {
     name = "id"
@@ -65,11 +85,21 @@ resource "aws_dynamodb_table" "orders" {
 # change. The sort key is "<instant with fixed width>#<new status>", so a query by order returns the entries in
 # time order.
 resource "aws_dynamodb_table" "order_history" {
+  # checkov:skip=CKV_AWS_119:DynamoDB always encrypts at rest with an AWS owned key; a customer managed key adds cost and is only needed for compliance
   name                        = "${var.name_prefix}order-history"
   billing_mode                = "PAY_PER_REQUEST"
   hash_key                    = "orderId"
   range_key                   = "sk"
   deletion_protection_enabled = var.deletion_protection
+
+  # Cost ceiling for on-demand capacity: requests above it are throttled instead of billed
+  dynamic "on_demand_throughput" {
+    for_each = var.max_request_units == null ? [] : [var.max_request_units]
+    content {
+      max_read_request_units  = on_demand_throughput.value.read
+      max_write_request_units = on_demand_throughput.value.write
+    }
+  }
 
   attribute {
     name = "orderId"
@@ -90,10 +120,20 @@ resource "aws_dynamodb_table" "order_history" {
 # DynamoDB deletes expired records with its native TTL; it may do it late, so the application ignores expired
 # records and the write condition lets a new request take an expired key.
 resource "aws_dynamodb_table" "idempotency" {
+  # checkov:skip=CKV_AWS_119:DynamoDB always encrypts at rest with an AWS owned key; a customer managed key adds cost and is only needed for compliance
   name                        = "${var.name_prefix}idempotency"
   billing_mode                = "PAY_PER_REQUEST"
   hash_key                    = "idempotencyKey"
   deletion_protection_enabled = var.deletion_protection
+
+  # Cost ceiling for on-demand capacity: requests above it are throttled instead of billed
+  dynamic "on_demand_throughput" {
+    for_each = var.max_request_units == null ? [] : [var.max_request_units]
+    content {
+      max_read_request_units  = on_demand_throughput.value.read
+      max_write_request_units = on_demand_throughput.value.write
+    }
+  }
 
   attribute {
     name = "idempotencyKey"

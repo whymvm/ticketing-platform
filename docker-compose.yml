@@ -40,6 +40,9 @@ services:
         condition: service_healthy
 
   app:
+    # Built from the source by default. To run a published release instead:
+    # APP_IMAGE=ghcr.io/whymvm/ticketing-platform:<version> docker compose up --no-build --wait
+    image: ${APP_IMAGE:-ticketing-platform-app}
     build:
       context: .
       dockerfile: deployment/Dockerfile

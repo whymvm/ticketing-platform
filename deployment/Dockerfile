@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 
 # ---- Build stage: compiles the bootable jar inside Docker (no local Java needed) ----
-FROM eclipse-temurin:25-jdk-alpine AS build
+# It runs on the platform of the builder: the jar is the same for every architecture, so a multi-platform release
+# compiles once, natively, and only the runtime stage is built for each target platform.
+FROM --platform=$BUILDPLATFORM eclipse-temurin:25-jdk-alpine AS build
 WORKDIR /workspace
 COPY . .
 RUN --mount=type=cache,target=/root/.gradle \

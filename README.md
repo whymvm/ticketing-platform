@@ -30,7 +30,7 @@ Everything runs locally with one command: `docker compose up`.
 13. [DevOps lifecycle](#13-devops-lifecycle)
 14. [Infrastructure as code](#14-infrastructure-as-code)
 15. [Known limitations](#15-known-limitations)
-16. [What would change in production](#16-what-would-change-in-production)
+16. [Production on AWS](#16-production-on-aws)
 17. [Roadmap](#17-roadmap)
 18. [Project structure](#18-project-structure)
 19. [License and author](#19-license-and-author)
@@ -87,8 +87,40 @@ An order has its own life cycle, because asynchrony needs three more states: `QU
 
 `SOLD` and `COMPLIMENTARY` have no way out: in the code each order state is a sealed type that only has its valid transitions, so reverting a sale **does not compile**.
 
-<!-- diagram: order state machine (stateDiagram-v2) -->
-<!-- diagram: ticket states and the inventory counters (stateDiagram-v2) -->
+```mermaid
+stateDiagram-v2
+    [*] --> QUEUED: POST /orders
+    [*] --> COMPLIMENTARY: complimentary tickets issued
+    QUEUED --> RESERVED: tickets reserved for 10 min
+    QUEUED --> REJECTED: SOLD_OUT or EVENT_CLOSED
+    RESERVED --> PENDING_CONFIRMATION: customer confirms
+    RESERVED --> EXPIRED: RESERVATION_TIMEOUT
+    PENDING_CONFIRMATION --> SOLD: payment APPROVED
+    PENDING_CONFIRMATION --> REJECTED: PAYMENT_DECLINED
+    PENDING_CONFIRMATION --> EXPIRED: PAYMENT_TIMEOUT
+    SOLD --> [*]
+    COMPLIMENTARY --> [*]
+    REJECTED --> [*]
+    EXPIRED --> [*]
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> AVAILABLE: event created, available = capacity
+    AVAILABLE --> RESERVED: reservation
+    RESERVED --> PENDING_CONFIRMATION: confirmation
+    RESERVED --> AVAILABLE: reservation expired
+    PENDING_CONFIRMATION --> SOLD: payment approved
+    PENDING_CONFIRMATION --> AVAILABLE: payment declined or expired
+    AVAILABLE --> COMPLIMENTARY: complimentary tickets issued
+    SOLD --> [*]
+    COMPLIMENTARY --> [*]
+    note right of AVAILABLE
+        One counter per state on the event.
+        available + reserved + pendingConfirmation
+        + sold + complimentary = capacity
+    end note
+```
 
 ## 3. Tech stack
 
@@ -161,12 +193,12 @@ The same steps are available as Gradle tasks (`./gradlew tasks --group ticketing
 | `./gradlew mutationTest` | Mutation tests (PIT); slow |
 | `./gradlew localUp` | Builds the image and starts the stack; finishes when the application is healthy |
 | `./gradlew postmanTest` | Runs the Postman collection against `http://localhost:8080` |
-| `./gradlew smokeTest` | `localUp` + `postmanTest`, the same end-to-end test the CI runs |
+| `./gradlew smokeTest` | `localUp` + `postmanTest`: end-to-end test of the running stack (on demand, not in the CI) |
 | `./gradlew localLogs` | Last 200 lines of the application log |
 | `./gradlew localDown` / `localReset` | Stops the stack, keeping or deleting its volumes |
 | `./gradlew terraformValidate` | Checks the format and validates the Terraform code |
 
-If `./gradlew build`, `./gradlew terraformValidate` and `./gradlew smokeTest` pass locally, a pull request should pass the CI.
+If `./gradlew build`, `./gradlew integrationTest`, `./gradlew terraformValidate` and `./gradlew terraformScan` pass locally, a pull request should pass the CI.
 
 ### Tools
 
@@ -392,7 +424,20 @@ The [Postman collection](postman/ticketing-platform.postman_collection.json) cov
 - **Administrators** create events and issue complimentary tickets.
 - **The payment provider** notifies the result of each payment.
 
-<!-- diagram: system context (C4 level 1) -->
+```mermaid
+flowchart LR
+    customer(["Customer"])
+    visitor(["Visitor"])
+    admin(["Administrator"])
+    provider(["Payment provider"])
+    platform["Ticketing Platform<br/>reactive API, SQS consumer, scheduler"]
+    customer -->|"places, confirms and checks orders"| platform
+    visitor -->|"follows the availability (SSE)"| platform
+    admin -->|"creates events, issues complimentary tickets"| platform
+    provider -->|"notifies payment results"| platform
+    platform -->|"events, orders, history, keys"| dynamo[("DynamoDB")]
+    platform -->|"reservations to process"| sqs[["SQS"]]
+```
 
 ### 7.2 Containers (local environment)
 
@@ -406,8 +451,36 @@ One application container holds three roles: the reactive API, the SQS consumer 
 | DynamoDB | Tables `events`, `orders` (with the `expiring-orders` index), `order-history` and `idempotency` |
 | SQS | Queue `reservations` with its dead-letter queue (5 receives at most) |
 
-<!-- diagram: local containers (docker compose) -->
-<!-- diagram: start-up order of the compose services -->
+```mermaid
+flowchart TB
+    client(["Client<br/>Postman, curl, browser"]) -->|"HTTP :8080"| api
+    subgraph compose["docker compose"]
+        subgraph app["app"]
+            api["Reactive API"]
+            listener["SQS consumer"]
+            scheduler["Scheduler, every 30 s"]
+        end
+        subgraph localstack["localstack"]
+            ddb[("DynamoDB<br/>events, orders, order-history, idempotency")]
+            queue[["SQS reservations<br/>and its dead-letter queue"]]
+        end
+        terraform["terraform<br/>creates the tables and queues"]
+    end
+    api -->|"order, history and key in one transaction"| ddb
+    api -->|"ORDER_PLACED"| queue
+    queue -->|"long polling"| listener
+    listener -->|"reserve or reject"| ddb
+    scheduler -->|"expire"| ddb
+    terraform -.->|"terraform apply"| ddb
+    terraform -.-> queue
+```
+
+```mermaid
+flowchart LR
+    ls["localstack"] -->|"healthy"| tf["terraform<br/>init and apply"]
+    tf -->|"completed successfully"| app["app"]
+    app -->|"readiness probe UP"| ready(["ready on :8080"])
+```
 
 ### 7.3 Clean Architecture
 
@@ -437,7 +510,28 @@ Dependencies only point inwards: the domain knows neither Spring, nor AWS, nor D
 
 The ports are small and named after the business (`OrderCreator`, `OrderRetriever`, `InventoryUpdater`, `ComplimentaryIssuer`…), so each use case depends only on what it uses (interface segregation).
 
-<!-- diagram: Clean Architecture modules and their dependencies -->
+```mermaid
+flowchart TB
+    subgraph application["Application"]
+        appservice["app-service<br/>Spring Boot, wiring, Clock"]
+    end
+    subgraph infrastructure["Infrastructure"]
+        web["entry-points/reactive-web"]
+        listener["entry-points/sqs-listener"]
+        sched["entry-points/scheduler"]
+        dynamo["driven-adapters/dynamo-db"]
+        sender["driven-adapters/sqs-sender"]
+        metrics["helpers/metrics"]
+    end
+    subgraph domain["Domain"]
+        usecase["usecase<br/>one use case per action"]
+        model["model<br/>entities, sealed states, ports"]
+    end
+    appservice --> web & listener & sched & dynamo & sender & metrics
+    web & listener & sched -->|"call"| usecase
+    dynamo & sender -->|"implement the ports"| model
+    usecase --> model
+```
 
 ## 8. Main flows
 
@@ -452,9 +546,66 @@ The ports are small and named after the business (`OrderCreator`, `OrderRetrieve
 5. It publishes `ORDER_PLACED` (only the order id: [*claim check*](https://www.enterpriseintegrationpatterns.com/patterns/messaging/StoreInLibrary.html)) and answers `202` with `Location` and `Retry-After: 1`.
 6. If two requests with the same key race, the key condition lets only one win; the other reads the key again and answers with the winning order.
 
-<!-- diagram: decisions of POST /orders (flowchart) -->
-<!-- diagram: place order, happy path (sequence) -->
-<!-- diagram: retry and race with the same Idempotency-Key (sequence) -->
+```mermaid
+flowchart TD
+    start(["POST /orders"]) --> valid{"Key and order valid?"}
+    valid -->|"no"| e400["400: key, quantity or customer"]
+    valid -->|"yes"| known{"Key stored for this<br/>customer and not expired?"}
+    known -->|"yes"| same{"Same fingerprint?"}
+    same -->|"yes"| replay["202 with the original order<br/>Idempotent-Replayed: true"]
+    same -->|"no"| reused["422 IDEMPOTENCY_KEY_REUSED"]
+    known -->|"no"| exists{"Event exists?"}
+    exists -->|"no"| e404["404 EVENT_NOT_FOUND"]
+    exists -->|"yes"| started{"Event started?"}
+    started -->|"yes"| closed["422 EVENT_CLOSED"]
+    started -->|"no"| tx["One transaction:<br/>QUEUED order, history, key"]
+    tx -->|"a concurrent request took the key"| same
+    tx -->|"ok"| publish["Publish ORDER_PLACED"]
+    publish --> accepted["202, Location, Retry-After: 1"]
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor C as Customer
+    participant API as Reactive API
+    participant UC as PlaceOrderUseCase
+    participant DB as DynamoDB
+    participant Q as SQS
+    C->>API: POST /orders with X-Customer-Id and Idempotency-Key
+    API->>UC: run(order, customer, key)
+    UC->>DB: GetItem idempotency key, strongly consistent
+    DB-->>UC: not found
+    UC->>DB: GetItem event
+    DB-->>UC: event exists and has not started
+    UC->>DB: TransactWriteItems: QUEUED order, history entry, key
+    DB-->>UC: ok
+    UC->>Q: SendMessage ORDER_PLACED, only the order id
+    UC-->>API: created order
+    API-->>C: 202 Accepted, Location, Retry-After: 1
+```
+
+```mermaid
+sequenceDiagram
+    actor A as Request A
+    actor B as Request B, same key
+    participant UC as PlaceOrderUseCase
+    participant DB as DynamoDB
+    par at the same time
+        A->>UC: POST /orders with key K
+    and
+        B->>UC: POST /orders with key K
+    end
+    UC->>DB: transaction of A, condition: key K is free
+    UC->>DB: transaction of B, condition: key K is free
+    DB-->>UC: A succeeds
+    DB-->>UC: B is cancelled, the condition on the key failed
+    UC->>DB: B reads key K again
+    DB-->>UC: record of the order of A
+    UC-->>A: 202 with order A, Idempotent-Replayed: false
+    UC-->>B: 202 with order A, Idempotent-Replayed: true
+    Note over A,DB: A later retry with K and the same data also gets order A.<br/>With other data it gets 422 IDEMPOTENCY_KEY_REUSED.
+```
 
 ### 8.2 Reserving the tickets (SQS consumer)
 
@@ -472,9 +623,62 @@ The ports are small and named after the business (`OrderCreator`, `OrderRetrieve
 | Unreadable message or wrong type | Not deleted → dead-letter queue |
 | Technical error or conflicts that persist | Not deleted → delivered again, then dead-letter queue |
 
-<!-- diagram: what happens to each message (flowchart) -->
-<!-- diagram: reserve tickets (sequence) -->
-<!-- diagram: two consumers competing for the last ticket (sequence) -->
+```mermaid
+flowchart TD
+    msg(["Message received"]) --> readable{"Readable ORDER_PLACED<br/>with an order id?"}
+    readable -->|"no"| keep["Not deleted"]
+    readable -->|"yes"| queued{"Order still QUEUED?"}
+    queued -->|"no, duplicate message"| noop["Deleted, no effect"]
+    queued -->|"yes"| started{"Event started?"}
+    started -->|"yes"| closed["REJECTED, EVENT_CLOSED"]
+    started -->|"no"| tx{"Reservation transaction"}
+    tx -->|"ok"| reserved["RESERVED"]
+    tx -->|"not enough tickets"| soldout["REJECTED, SOLD_OUT"]
+    tx -->|"TransactionConflict"| retry["Retry, up to 3 times<br/>backoff from 50 ms"]
+    retry --> tx
+    tx -->|"technical error or conflicts that persist"| keep
+    closed & reserved & soldout --> deleted["Deleted: a valid business answer"]
+    keep --> visible["Visible again after 15 s"]
+    visible --> dlq[["Dead-letter queue<br/>after 5 receives"]]
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Q as SQS
+    participant L as SQS consumer
+    participant UC as ReserveTicketsUseCase
+    participant DB as DynamoDB
+    L->>Q: ReceiveMessage, up to 10, long polling 10 s
+    Q-->>L: ORDER_PLACED with the order id
+    L->>UC: run(orderId)
+    UC->>DB: GetItem order, strongly consistent
+    DB-->>UC: QUEUED order
+    UC->>DB: GetItem event
+    DB-->>UC: the event has not started
+    UC->>DB: TransactWriteItems
+    Note right of DB: event: available - n, reserved + n, if available >= n<br/>order: RESERVED, if status = QUEUED<br/>history: new entry
+    DB-->>UC: ok
+    UC-->>L: done
+    L->>Q: DeleteMessage, only after the effect is stored
+```
+
+```mermaid
+sequenceDiagram
+    participant C1 as Consumer 1, order A
+    participant C2 as Consumer 2, order B
+    participant DB as DynamoDB
+    Note over DB: event: available = 1
+    par at the same time
+        C1->>DB: transaction A: available - 1, if available >= 1
+    and
+        C2->>DB: transaction B: available - 1, if available >= 1
+    end
+    DB-->>C1: ok, order A is RESERVED and available = 0
+    DB-->>C2: cancelled, the condition on the event failed
+    C2->>DB: order B: REJECTED with SOLD_OUT, if status = QUEUED
+    Note over C1,DB: Only one conditional write can take the last ticket.<br/>No locks and no read-modify-write in memory.
+```
 
 ### 8.3 Confirmation and payment
 
@@ -487,8 +691,46 @@ The ports are small and named after the business (`OrderCreator`, `OrderRetrieve
    - a late notification (after the deadline) is rejected with `409 PAYMENT_EXPIRED`: a late approval never sells tickets that were already released;
    - the same notification again returns the order as it is, because providers repeat their notifications.
 
-<!-- diagram: confirm order (sequence) -->
-<!-- diagram: payment notification, approved and declined (sequence) -->
+```mermaid
+sequenceDiagram
+    autonumber
+    actor C as Customer
+    participant UC as ConfirmOrderUseCase
+    participant DB as DynamoDB
+    C->>UC: POST /orders/ID/confirm
+    UC->>DB: GetItem order, strongly consistent
+    DB-->>UC: RESERVED order of this customer
+    alt the reservation time is over
+        UC-->>C: 409 RESERVATION_EXPIRED
+    else still reserved
+        UC->>DB: TransactWriteItems
+        Note right of DB: event: reserved - n, pendingConfirmation + n<br/>order: PENDING_CONFIRMATION, payment deadline 5 min<br/>if status = RESERVED
+        DB-->>UC: ok
+        UC-->>C: 202 PENDING_CONFIRMATION
+    end
+    Note over C,DB: Confirming again an order that is already PENDING_CONFIRMATION or SOLD returns it as it is.
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as Payment provider
+    participant UC as RecordPaymentUseCase
+    participant DB as DynamoDB
+    P->>UC: POST /orders/ID/payment with APPROVED or DECLINED
+    UC->>DB: GetItem order
+    DB-->>UC: PENDING_CONFIRMATION order
+    alt the payment deadline is over
+        UC-->>P: 409 PAYMENT_EXPIRED
+    else APPROVED
+        UC->>DB: pendingConfirmation - n, sold + n, order SOLD
+        UC-->>P: 200 SOLD
+    else DECLINED
+        UC->>DB: pendingConfirmation - n, available + n, order REJECTED
+        UC-->>P: 200 REJECTED with PAYMENT_DECLINED
+    end
+    Note over P,DB: The same notification again returns the order as it is.<br/>The opposite result answers 409 ORDER_NOT_AWAITING_PAYMENT.
+```
 
 ### 8.4 Expiration of reservations and payments
 
@@ -499,8 +741,46 @@ The ports are small and named after the business (`OrderCreator`, `OrderRetrieve
 
 Every instance runs the scheduler; no leader election is needed, because only one conditional write wins for each order. The clock is read again on every run (`Flux.defer`): an earlier version read it once at start-up, so reservations created afterwards never expired. A test now subscribes twice to the same flow and checks that each run uses a new instant.
 
-<!-- diagram: expiration scheduler (sequence) -->
-<!-- diagram: race between confirming and expiring (sequence) -->
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Scheduler, every 30 s
+    participant UC as ReleaseExpiredReservationsUseCase
+    participant IDX as Index expiring-orders
+    participant DB as DynamoDB
+    S->>UC: run(), reads the clock again
+    UC->>IDX: Query the 4 shards in parallel, expiresAt <= now
+    IDX-->>UC: RESERVED and PENDING_CONFIRMATION orders past their deadline
+    loop each order, up to 16 at a time
+        UC->>UC: check the exact instant again
+        UC->>DB: TransactWriteItems
+        Note right of DB: event: reserved or pendingConfirmation - n, available + n<br/>order: EXPIRED, leaves the index<br/>if its status did not change
+    end
+```
+
+```mermaid
+sequenceDiagram
+    actor C as Customer
+    participant CU as ConfirmOrderUseCase
+    participant S as Scheduler
+    participant DB as DynamoDB
+    Note over DB: order RESERVED, its deadline is passing right now
+    par at the same time
+        CU->>DB: PENDING_CONFIRMATION, if status = RESERVED
+    and
+        S->>DB: EXPIRED, if status = RESERVED
+    end
+    alt the scheduler wins
+        DB-->>S: ok, the tickets go back to available
+        DB-->>CU: cancelled, the status is no longer RESERVED
+        CU->>DB: reads the order again
+        CU-->>C: 409 ORDER_NOT_RESERVED, it is EXPIRED
+    else the confirmation wins
+        DB-->>CU: ok
+        CU-->>C: 202 PENDING_CONFIRMATION
+        DB-->>S: cancelled, the order is skipped
+    end
+```
 
 ### 8.5 Real-time availability (SSE)
 
@@ -511,7 +791,30 @@ Every instance runs the scheduler; no leader election is needed, because only on
 
 Measured locally: 5 clients for 10 s made 20 reads to DynamoDB, instead of about 60 with one polling per subscriber.
 
-<!-- diagram: SSE with a shared source (sequence) -->
+```mermaid
+sequenceDiagram
+    actor V1 as Visitor 1
+    actor V2 as Visitor 2
+    participant API as SSE stream
+    participant F as Shared polling feed
+    participant DB as DynamoDB
+    V1->>API: GET /events/ID/availability/stream
+    API->>DB: does the event exist, and its current state
+    API-->>V1: event availability
+    API->>F: subscribe, the first watcher starts the polling
+    V2->>API: GET /events/ID/availability/stream
+    API->>DB: does the event exist, and its current state
+    API-->>V2: event availability
+    API->>F: subscribe, shares the same polling
+    loop every second, while someone watches
+        F->>DB: GetItem event
+        F-->>API: availability
+        API-->>V1: only if it changed
+        API-->>V2: only if it changed
+    end
+    API-->>V1: heartbeat comment every 15 s
+    Note over F,DB: When the last visitor leaves, the polling stops.
+```
 
 ### 8.6 Complimentary tickets
 
@@ -519,7 +822,26 @@ Complimentary tickets do **not** go through the queue (ADR 0023). One transactio
 
 Measured locally: 20 parallel requests of 1 ticket on an event of 5 gave exactly 5 `201` and 15 `409`.
 
-<!-- diagram: issue complimentary tickets (sequence) -->
+```mermaid
+sequenceDiagram
+    autonumber
+    actor A as Administrator
+    participant UC as IssueComplimentaryUseCase
+    participant DB as DynamoDB
+    A->>UC: POST /events/ID/complimentary with X-Admin-Key and Idempotency-Key
+    Note right of A: 403 ADMIN_ACCESS_DENIED without a valid admin key
+    UC->>DB: GetItem idempotency key of the organizer
+    UC->>DB: GetItem event, it exists and has not started
+    UC->>DB: TransactWriteItems with 4 items
+    Note right of DB: event: available - n, complimentary + n, if available >= n<br/>COMPLIMENTARY order<br/>history entry<br/>idempotency key
+    alt enough tickets
+        DB-->>UC: ok
+        UC-->>A: 201 COMPLIMENTARY and Location
+    else not enough tickets
+        DB-->>UC: cancelled, the condition on the event failed
+        UC-->>A: 409 TICKETS_SOLD_OUT, nothing is written
+    end
+```
 
 ### 8.7 Graceful shutdown of the consumer
 
@@ -527,7 +849,24 @@ The listener is a [`SmartLifecycle`](https://docs.spring.io/spring-framework/doc
 
 Before this change, a message received by the poll of a stopping instance waited the whole visibility timeout (15 s) after every restart. The first fix, cancelling the poll, did not work: cancelling on the client does not stop the server from delivering the message. Verified afterwards in 5 out of 5 restarts (ADR 0021).
 
-<!-- diagram: graceful shutdown of the SQS listener (sequence) -->
+```mermaid
+sequenceDiagram
+    participant D as Docker or ECS
+    participant SP as Spring
+    participant L as SQS listener
+    participant Q as SQS
+    participant W as Web server
+    Note over L,Q: a poll is open, it waits up to 10 s
+    D->>SP: SIGTERM
+    SP->>L: stop()
+    L->>L: asks for no new messages
+    Q-->>L: messages of the open poll
+    L->>L: processes them
+    L->>Q: DeleteMessage
+    L-->>SP: stopped
+    SP->>W: graceful shutdown
+    SP-->>D: the process exits before 35 s
+```
 
 ## 9. Architecture decisions
 
@@ -757,6 +1096,7 @@ Each significant decision is recorded below as a short ADR ([*Architecture Decis
 - **Why:** zero cost, only Docker needed, and real modular infrastructure as code: the modules do not know they run locally and would be reused for production.
 - **Pros:** reproducible environment; IaC validated in the CI.
 - **Cons:** the AWS architecture is defended with its design, decisions and costs, not live.
+- **Update:** the production environment now exists as Terraform (`envs/prod`), validated and scanned in the CI and ready to apply; the local environment is still the one that runs (§16).
 
 #### ADR 0017 · Declared identity without authentication
 
@@ -799,7 +1139,7 @@ Each significant decision is recorded below as a short ADR ([*Architecture Decis
 
 ### What is not implemented
 
-There is **no authentication and no Spring Security**, there is no rate limiting, and the payment webhook is open. The full list, mapped to the OWASP Top 10, is in [§15.2](#152-security-owasp-top-10).
+Locally there is **no authentication and no Spring Security**, there is no rate limiting, and the payment webhook is open. In AWS, the production environment adds a JWT validated by API Gateway (the customer comes from the token, not from a header), throttling and least-privilege IAM ([§16.3](#163-security-and-the-bill)); the application still does no authorization of its own. The full list, mapped to the OWASP Top 10, is in [§15.2](#152-security-owasp-top-10).
 
 ## 12. Testing and quality
 
@@ -811,7 +1151,7 @@ There is **no authentication and no Spring Security**, there is no rate limiting
 | Blocking calls | BlockHound | No blocking call on a reactive thread |
 | Architecture | ArchUnit, `validateStructure` | Layer rules of Clean Architecture |
 | Concurrency | Testcontainers + LocalStack + real Terraform | No overselling with 50 concurrent purchases |
-| End to end | Postman + Newman | Every flow and error case against the running stack, on every pull request |
+| End to end | Postman + Newman | Every flow and error case against the running stack, on demand (`./gradlew smokeTest`) |
 | Mutation | PIT | That the tests verify the code, not only run it |
 
 Results on 2026-10-11:
@@ -829,38 +1169,90 @@ How the project covers the eight phases **Plan → Code → Build → Test → R
 |---|---|---|---|
 | **Plan** | Requirements, domain model, data design, API contract and architecture designed before coding; decisions recorded as ADRs (§9); GitHub issues per feature | ✅ | — |
 | **Code** | [Gitflow](https://nvie.com/posts/a-successful-git-branching-model/): `feature/*` → `develop` through pull requests, `release/*` and `hotfix/*` → `main`; small semantic commits; scaffold plugin for modules and use cases | ✅ | — |
-| **Build** | Gradle wrapper with build cache and configuration cache; multi-stage Dockerfile that compiles inside Docker | ✅ | No image published to a registry |
+| **Build** | Gradle wrapper with build cache and configuration cache; multi-stage Dockerfile that compiles inside Docker; ARM64 image for Fargate | ✅ | — |
 | **Test** | Unit, reactive, architecture, concurrency, end-to-end and mutation tests; 90 % coverage gate in the build and in the CI | ✅ | PIT runs on demand, not in the CI with a threshold |
-| **Release** | Gitflow release branches and `main` as the released line | 🟡 | No version tags or changelog yet; no automated versioning |
-| **Deploy** | `docker compose up` deploys the whole local environment; Terraform creates the infrastructure | 🟡 | Local only; no CD pipeline; AWS is a documented proposal (§16) |
-| **Operate** | [Health probes](https://docs.spring.io/spring-boot/reference/actuator/endpoints.html) (liveness, readiness), Docker health check, graceful shutdown aligned between Spring and Docker, dead-letter queues, idempotent consumers | 🟡 | Readiness does not check DynamoDB or SQS; no runbook for re-driving the dead-letter queue |
-| **Monitor** | Micrometer metrics in Prometheus format (AWS SDK calls, duration of each processed message) | 🟡 | Plain-text logs without `correlationId`; no business metrics; no dashboards or alarms; no tracing |
+| **Release** | Gitflow: `release/x.y.z` is merged into `main` and tagged `vX.Y.Z`. The tag runs the release workflow: it checks that the commit is on `main`, builds and tests it again, publishes the Docker image to GitHub Packages for amd64 and arm64 (with provenance and SBOM), and creates the GitHub release with generated notes | ✅ | A changelog file; publishing to ECR belongs to a CD pipeline (§16.5) |
+| **Deploy** | `docker compose up` deploys the whole local environment; `envs/prod` deploys to AWS with one `terraform apply` per version, rolling update and automatic rollback (§16.5) | 🟡 | Applied by hand, not by a pipeline; no `terraform plan` on pull requests yet |
+| **Operate** | [Health probes](https://docs.spring.io/spring-boot/reference/actuator/endpoints.html) (liveness, readiness), container health checks, graceful shutdown aligned between Spring, Docker and ECS, dead-letter queues, idempotent consumers; AWS runbook with a kill switch (§16.5) | 🟡 | Readiness does not check DynamoDB or SQS |
+| **Monitor** | Micrometer metrics in Prometheus format; in AWS, CloudWatch logs, JSON access logs and five alarms by email (abuse, 5xx, dead-letter queue, queue age, CPU), plus a monthly budget (§16.5) | 🟡 | Plain-text application logs without `correlationId`; no business metrics, dashboards or tracing |
 
 ### Continuous integration
 
-Every pull request to `develop` or `main`, and every push to `develop`, `main`, `release/**` and `hotfix/**`, runs:
+Every pull request to `develop` or `main`, and every push to `develop`, `main`, `release/**` and `hotfix/**`, runs four independent jobs in parallel:
 
 | Job | What it does |
 |---|---|
-| Build and test | `./gradlew build` with JDK 25: compilation, structure validation, unit tests and the coverage gate; reports uploaded as artifacts |
-| Validate Terraform | `terraform fmt -check` and `terraform validate` |
-| Docker smoke test | Starts the full stack with Docker Compose, waits until the application is healthy and runs the Postman collection with Newman |
+| Build and test | `./gradlew build coverageReport` with JDK 25: compilation, structure validation, unit tests and the 90 % coverage gate; the coverage is shown in the run summary and the reports are uploaded as artifacts |
+| Validate Terraform | `terraform fmt -check`, `terraform validate` of the three stacks (`envs/local`, `envs/prod`, `bootstrap`) and a [Checkov](https://www.checkov.io/) security scan that fails on any new finding (§16.6) |
+| Integration tests | `./gradlew integrationTest`: the concurrency test against LocalStack, with the resources created by the real Terraform (Testcontainers) |
+| Docker image | Builds the production image on an ARM64 runner (the Fargate architecture) and checks that it starts with a read-only root file system |
 
 A newer push to the same pull request cancels the outdated run, and the branch rule requires a green CI before merging into `develop`.
 
-<!-- diagram: DevOps phases mapped to the repository (flowchart) -->
-<!-- diagram: CI pipeline jobs (flowchart) -->
+### Release
+
+[Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow): a `release/x.y.z` branch leaves `develop`, is merged into `main` and into `develop`, and `main` is tagged `vX.Y.Z`. Pushing the tag runs `.github/workflows/release.yml`:
+
+| Job | What it does |
+|---|---|
+| Verify the tagged commit | Fails if the tag is not on `main`; runs `./gradlew build` on that exact commit |
+| Publish the Docker image | Builds `linux/amd64` and `linux/arm64` (the jar is compiled once, natively; only the runtime stage is built per platform) and pushes `ghcr.io/whymvm/ticketing-platform` with the tags `X.Y.Z`, `X.Y` and `latest`, the OCI labels, a provenance attestation and an SBOM |
+| Create the GitHub release | `gh release create` with the notes generated from the merged pull requests and the command to pull the image |
+
+The workflow token only gets `packages: write` and `contents: write` in the jobs that need them. A published version runs with its infrastructure without building anything:
+
+```bash
+APP_IMAGE=ghcr.io/whymvm/ticketing-platform:1.0.0 docker compose up --no-build --wait
+```
+
+The CI and the release are separate workflows because they have a different trigger and different permissions: the CI runs on every change with a read-only token, the release runs only for a version tag and writes. A deployment would be a third one (CD), with manual approval and AWS credentials through OIDC.
+
+```mermaid
+flowchart LR
+    plan["Plan<br/>requirements, ADRs, issues"] --> code["Code<br/>Gitflow, pull requests"]
+    code --> build["Build<br/>Gradle, Dockerfile"]
+    build --> test["Test<br/>unit, integration, coverage, PIT"]
+    test --> release["Release<br/>version tag, GHCR image, GitHub release"]
+    release --> deploy["Deploy<br/>docker compose, terraform apply"]
+    deploy --> operate["Operate<br/>health probes, graceful shutdown, runbook"]
+    operate --> monitor["Monitor<br/>metrics, logs, alarms"]
+    monitor -.->|"feedback"| plan
+```
+
+```mermaid
+flowchart LR
+    subgraph ci["ci.yml, every pull request and push"]
+        change(["Change"]) --> build["Build and test<br/>compile, unit tests, coverage gate"]
+        change --> integ["Integration tests<br/>LocalStack and the real Terraform"]
+        change --> tf["Validate Terraform<br/>fmt, validate, Checkov"]
+        change --> img["Docker image<br/>ARM64 build, start check"]
+        build & integ & tf & img --> green{"All green?"}
+        green -->|"yes"| merge["Merge into develop"]
+    end
+    subgraph rel["release.yml, version tag on main"]
+        tag(["vX.Y.Z"]) --> verify["Verify<br/>tag on main, build"]
+        verify --> publish["Publish the image<br/>ghcr.io, amd64 and arm64"]
+        publish --> ghrel["GitHub release"]
+    end
+```
 
 ## 14. Infrastructure as code
 
-The local infrastructure is created by Terraform, not by scripts: the AWS provider points at LocalStack, so the same code would create the real resources in AWS.
+Every environment is created by Terraform, not by scripts. Locally the AWS provider points at LocalStack; in AWS, `envs/prod` reuses the same `data` and `messaging` modules and adds the network, compute, entry, identity and observability modules (§16).
 
 ```text
 infra/terraform/
+├── bootstrap/           # once per account: state bucket, ECR registry, GitHub OIDC release role, monthly budget
 ├── envs/local/          # local environment: provider pointing at LocalStack, default tags
+├── envs/prod/           # AWS: remote state in S3, every module below
 └── modules/
     ├── data/            # DynamoDB tables: events, orders (+ GSI expiring-orders), order-history, idempotency (+ TTL)
-    └── messaging/       # SQS queues, each with its dead-letter queue and redrive policy
+    ├── messaging/       # SQS queues, each with its dead-letter queue and redrive policy
+    ├── network/         # VPC, public subnets, DynamoDB gateway endpoint, security groups
+    ├── compute/         # ECS Fargate, IAM roles, autoscaling, Cloud Map
+    ├── auth/            # Cognito
+    ├── edge/            # API Gateway HTTP API
+    └── observability/   # alarms and their SNS topic
 ```
 
 | Decision | Detail |
@@ -870,9 +1262,10 @@ infra/terraform/
 | Idempotency with native TTL | Keys are deleted by DynamoDB after 24 h; the application ignores expired keys that are not deleted yet |
 | Dead-letter queues | `maxReceiveCount = 5`; 4 days of retention in the queue and 14 in the dead-letter queue; redrive allowed only from its own queue |
 | Encryption | SSE-SQS on every queue; DynamoDB always encrypts at rest |
-| Environment flags | `point_in_time_recovery` and `deletion_protection` are module variables: off in local, on in a production environment |
+| Environment flags | `point_in_time_recovery`, `deletion_protection` and the maximum on-demand throughput are module variables: off in local, on in `envs/prod` |
 | Default tags | `project`, `env` and `managed-by` on every resource |
-| Persistent state | The state lives in a Docker volume and is reconciled on every run, so restarting any service is safe |
+| State | Locally, a Docker volume reconciled on every run; in AWS, a versioned and encrypted S3 bucket with native locking (`use_lockfile`) |
+| Checks | `./gradlew terraformValidate` (format and validation of every stack) and `./gradlew terraformScan` (Checkov), the same as the CI |
 
 ## 15. Known limitations
 
@@ -919,42 +1312,193 @@ Mapped to the [OWASP Top 10 (2021)](https://owasp.org/Top10/).
 
 ### 15.4 Scope
 
-- Only the local environment exists; the AWS architecture is a documented proposal, not deployed (ADR 0012).
+- Only the local environment runs. The AWS environment is Terraform ready to apply (`envs/prod`), validated and scanned in the CI but not deployed, so it has not been tested against real AWS yet (§16).
 - No listing of events (`GET /events`) and no order cancellation.
 - Creating an event is not idempotent: retrying `POST /events` creates another event.
 - The API contract is generated by springdoc and published in Swagger UI; there is no hand-written OpenAPI file.
 
-## 16. What would change in production
+## 16. Production on AWS
 
-| Area | Local today | Production proposal |
+The production environment is written in Terraform (`infra/terraform/envs/prod`), validated and scanned on every pull request, and ready for `terraform apply`. It is not left running, to avoid a permanent cost; this section explains how it is deployed, what it costs and why each decision was taken.
+
+It is designed for a **small budget with a cost ceiling by construction**: one evaluator, a few hundred requests a day, and hard limits on what abuse can make the backend consume ([§16.3](#163-security-and-the-bill) states the risk that remains). [§16.7](#167-at-scale-what-would-change) describes how it evolves when real traffic arrives.
+
+### 16.1 Architecture
+
+```text
+Client ──HTTPS──> API Gateway HTTP API ──VPC link──> AWS Cloud Map (SRV) ──> ECS Fargate service (ARM64)
+                  · JWT from Cognito                                          · 1 task (autoscaling up to 2)
+                  · throttling (10 rps, burst 20)                             · public subnets, no NAT Gateway
+                  · X-Customer-Id = token "sub"                               · security group: VPC link only
+                                                                                     │
+                       ┌─────────────────────────────┬───────────────────────────────┼──────────────────────┐
+                       ▼                             ▼                               ▼                      ▼
+              DynamoDB (on demand,          SQS reservations + DLQ          CloudWatch Logs + alarms   SSM Parameter Store
+              max throughput, PITR,         (SSE-SQS)                       → SNS email                (admin key)
+              gateway endpoint)
+```
+
+```mermaid
+flowchart LR
+    client(["Client"])
+    cognito["Amazon Cognito<br/>user pool, no self sign-up"]
+    subgraph aws["AWS account, us-east-1"]
+        apigw["API Gateway HTTP API<br/>JWT authorizer, throttling<br/>X-Customer-Id = token sub"]
+        subgraph vpc["VPC, 2 Availability Zones"]
+            link["VPC link"]
+            map["AWS Cloud Map<br/>SRV records"]
+            ecs["ECS Fargate ARM64<br/>1 to 2 tasks, public subnets<br/>security group: VPC link only"]
+        end
+        ddb[("DynamoDB<br/>through a gateway endpoint")]
+        sqs[["SQS reservations<br/>and dead-letter queue"]]
+        ssm["SSM Parameter Store<br/>admin key"]
+        cw["CloudWatch<br/>logs and alarms"]
+        sns["SNS<br/>email alerts"]
+    end
+    client -->|"sign in"| cognito
+    client -->|"HTTPS with the access token"| apigw
+    apigw -.->|"validates the token"| cognito
+    apigw --> link
+    map -.->|"IP and port of the healthy tasks"| link
+    link --> ecs
+    ecs --> ddb
+    ecs --> sqs
+    ecs --> cw
+    ssm -.->|"secret injected at start"| ecs
+    cw --> sns
+```
+
+```text
+infra/terraform/
+├── bootstrap/        # once per account: state bucket, ECR registry, GitHub OIDC release role, monthly budget
+├── envs/local/       # LocalStack
+├── envs/prod/        # AWS: composes every module below
+└── modules/
+    ├── data/         # DynamoDB tables (shared with local)
+    ├── messaging/    # SQS queues and DLQs (shared with local)
+    ├── network/      # VPC, 2 public subnets, DynamoDB gateway endpoint, chained security groups
+    ├── compute/      # ECS cluster, task definition, service, autoscaling, IAM roles, Cloud Map
+    ├── auth/         # Cognito user pool without self sign-up
+    ├── edge/         # HTTP API, VPC link, JWT authorizer, throttling, access logs
+    └── observability/# SNS topic and CloudWatch alarms
+```
+
+### 16.2 Decisions and trade-offs
+
+| Decision | Why | Trade-off |
 |---|---|---|
-| Entry | Port 8080, plain HTTP | CloudFront (TLS) + AWS WAF in front of an internal Application Load Balancer, without public IP |
-| Compute | One container with every role | ECS Fargate (ARM64) in private subnets; API and workers as separate services, scaled by requests and by queue depth |
-| Identity | `X-Customer-Id` declared | Cognito + JWT validated by Spring Security, `admin` group |
-| Secrets | Environment variables with dummy values | IAM task roles (no static keys); Secrets Manager for the payment provider key |
-| Data | DynamoDB on LocalStack | DynamoDB on-demand with point-in-time recovery and deletion protection; least-privilege IAM per table and queue |
-| Messaging | Dual write | Transactional outbox with DynamoDB Streams |
-| Real time | Polling every second | DynamoDB Streams feeding the SSE source |
-| Observability | Prometheus endpoint | JSON logs and metrics in CloudWatch, alarms, AWS Budgets, X-Ray tracing |
-| Infrastructure | `envs/local` | `envs/prod` reusing the modules, plus `network`, `compute`, `edge`, `auth` and `observability` modules; remote state in S3 with locking |
-| Delivery | Manual | CD pipeline: build, scan and push the image to ECR, `terraform plan` on pull requests, deploy on release tags |
+| **API Gateway HTTP API as the only entry point**, no load balancer | No fixed cost (pay per request); HTTPS on the default endpoint with an AWS certificate, JWT validation and throttling included | [AWS WAF cannot protect HTTP APIs](https://docs.aws.amazon.com/waf/latest/developerguide/waf-chapter.html) (only REST APIs, CloudFront and ALB). The [maximum integration timeout is 30 s](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-quotas.html), so the SSE stream is cut every 30 s and `EventSource` reconnects by itself |
+| **VPC link + AWS Cloud Map instead of an ALB** | API Gateway reaches the private tasks directly; ECS registers [SRV records](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-private.html) (IP and port), and only tasks with a passing container health check receive traffic. Saves a load balancer (about USD 16–20 a month) | No load balancer health checks or connection draining; the container health check and the graceful shutdown (ADR 0021) cover it |
+| **Public subnets without a NAT Gateway** | A NAT Gateway costs [USD 0.045 per hour plus data](https://aws.amazon.com/vpc/pricing/) (about USD 33 a month), more than the rest of the environment. DynamoDB goes through a [gateway endpoint, which has no charge](https://aws.amazon.com/vpc/pricing/) | The task has a public IP ([USD 0.005 per hour](https://aws.amazon.com/vpc/pricing/)) to reach ECR, SQS and CloudWatch. Its security group only accepts traffic from the VPC link, so nothing on the internet can open a connection to it. At scale: private subnets (§16.7) |
+| **Cognito + JWT authorizer, identity taken from the token** | API Gateway validates the [access token](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-jwt-authorizer.html) and [overwrites `X-Customer-Id`](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-parameter-mapping.html) with its `sub` claim. The application does not change, and the impersonation risk of the declared identity (ADR 0017) disappears in AWS. The route requires the scope `aws.cognito.signin.user.admin`, which [only access tokens carry](https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-the-access-token.html), as API Gateway recommends | The application trusts the header, so it must only be reachable through the gateway: guaranteed by the security group. No self sign-up: users are created by an administrator. [Free up to 10,000 monthly active users](https://aws.amazon.com/cognito/pricing/) |
+| **Fargate ARM64, 0.25 vCPU and 1 GB, one task** | Graviton is [about 20 % cheaper than x86](https://aws.amazon.com/fargate/pricing/) and the image is already built for ARM64 on Apple silicon. Autoscaling by CPU, with at most 2 tasks as a cost ceiling | The JVM starts slowly (health check `startPeriod` of 120 s); no headroom for real load |
+| **DynamoDB on demand with a [maximum throughput](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/on-demand-capacity-mode-max-throughput.html)**, PITR and deletion protection | Pay per request, plus a ceiling: requests above 100 reads or 50 writes per second per table are throttled instead of billed. Same modules as local, with backups and deletion protection on | The ceiling is applied on a best-effort basis. `deletion_protection` (tables and user pool) must be set to `false` on purpose before `terraform destroy` |
+| **Secrets outside Terraform** | The admin key is a SecureString parameter created with the AWS CLI; ECS [injects it when the task starts](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/secrets-envvar-ssm-paramstore.html). Users and passwords are created with the CLI too. No secret reaches the code or the Terraform state | Two manual steps before the first deployment. Parameter Store standard parameters have no charge |
+| **Least-privilege IAM** | The task role only allows the calls the code makes (`GetItem`, `PutItem`, `UpdateItem`, `Query`; `SendMessage`, `ReceiveMessage`, `DeleteMessage`) on its own tables and queue. A [transaction only needs the permissions of its items](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html), so there is no `DeleteItem` and no `Scan`. The execution role only reads its own parameter | Any new operation in the code needs a policy change |
+| **Hardened container** | Non-root user, read-only root file system with `/tmp` as the only writable path (tested locally against LocalStack), immutable image tags and a scan of each image on push | — |
+| **Remote state in S3 with native locking** | Versioned, encrypted, private, TLS-only bucket; locking with [`use_lockfile`](https://developer.hashicorp.com/terraform/language/backend/s3), because DynamoDB locking is deprecated | The `bootstrap` stack keeps a local state: it creates the bucket that would store it |
+| **Isolation of environments** | `local` and `prod` use the same `data` and `messaging` modules with their own state, name prefix and tags | One AWS account for everything. In production: one account per environment with AWS Organizations |
 
-A rough estimate of the light profile is about **USD 85 per month** in `us-east-1`, more than half of it fixed network cost (NAT Gateway and load balancer); DynamoDB and SQS cost almost nothing at low traffic. It is a rough figure, to be checked with the [AWS Pricing Calculator](https://calculator.aws/):
+### 16.3 Security and the bill
 
-| Resource | USD per month, approx. |
+A public API can be abused to make the bill grow. The controls are layered, from the hard limits to the detection:
+
+| Layer | Control | Effect |
+|---|---|---|
+| Entry | Throttling of 10 requests per second (burst 20) on the stage; JWT required on every route; only `/api/*` is published (the actuator stays private) | Bounds what reaches the tasks and DynamoDB. API Gateway applies throttles [on a best-effort basis](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-throttling.html) |
+| Backend | At most 2 tasks; DynamoDB maximum throughput per table | The backend cannot grow, so it rejects instead of billing |
+| Detection | Alarm on the request count of the API (more than 2,000 in 5 minutes), plus 5xx, dead-letter messages, queue age and CPU, sent by email | Minutes, not hours |
+| Last line | Monthly budget with alerts at 50, 80 and 100 % and a forecast alert | Budgets are updated a few times a day, so it is a backstop |
+| Response | Kill switch through variables: `desired_count=0` stops every task; `throttling_rate_limit=0` and `throttling_burst_limit=0` are meant to reject every request at the gateway (the [API reference](https://docs.aws.amazon.com/apigatewayv2/latest/api-reference/apis-apiid-stages.html) states no minimum, so confirm it on the first deployment) | Reversible with one `terraform apply` |
+
+**Residual risk, stated honestly:** the [API Gateway pricing page](https://aws.amazon.com/api-gateway/pricing/) does not say whether requests rejected by the authorizer or by throttling are charged. A volumetric attack could therefore still cost money at the entry point, at about USD 1 per million requests. The request-count alarm and the kill switch limit how long it lasts. Shield Advanced would add cost protection, but it is far outside this budget.
+
+### 16.4 Cost
+
+Prices of `us-east-1`, checked on the official pricing pages; to be confirmed with the [AWS Pricing Calculator](https://calculator.aws/) before deploying:
+
+| Resource | Monthly cost, running 24/7 | Source |
+|---|---|---|
+| Fargate ARM64, 0.25 vCPU and 1 GB | USD 8.51 | [Fargate pricing](https://aws.amazon.com/fargate/pricing/): USD 0.03238 per vCPU-hour, 0.00356 per GB-hour |
+| Public IPv4 of the task | USD 3.65 | [VPC pricing](https://aws.amazon.com/vpc/pricing/): USD 0.005 per hour |
+| Route 53 private hosted zone (Cloud Map) and the registered task | USD 0.60 | [Route 53](https://aws.amazon.com/route53/pricing/): USD 0.50; [Cloud Map](https://aws.amazon.com/cloud-map/pricing/): USD 0.10 |
+| API Gateway, DynamoDB, SQS, Cognito, CloudWatch, ECR, S3 | About USD 1 at evaluation traffic | Pay per use; 5 alarms are within the 10 free ones; Cognito is free up to 10,000 users |
+| **Total** | **About USD 14 a month** | With `desired_count=0`, about USD 1.60 |
+
+The at-scale design of §16.7 costs about USD 85 a month: more than half of it is fixed network cost (NAT Gateway and load balancer). The budget design trades WAF and private subnets for a sixth of that cost, and documents the residual risk.
+
+### 16.5 Release, deploy, operate and monitor
+
+**Release.** The release workflow (§13) publishes every version to GitHub Packages for amd64 and arm64. A deployment to AWS would copy that image to ECR with an immutable version tag: the `bootstrap` stack already creates the role for it, which uses [OIDC instead of long-lived keys](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws). Only the `release` environment of this repository can assume it, and it can only push images; changing the infrastructure stays a reviewed `terraform apply`. That CD step is not implemented, because nothing runs in AWS.
+
+**Deploy** (once per account, then one apply per version):
+
+```bash
+# 1. Account guardrails: state bucket, registry, release role, budget (local state)
+cd infra/terraform/bootstrap
+terraform init && terraform apply -var alert_email=you@example.com
+
+# 2. Admin key: created outside Terraform, so it never reaches the state
+aws ssm put-parameter --name /prod-ticketing/admin-api-key --type SecureString --value "$(openssl rand -hex 32)"
+
+# 3. Release: build for ARM64 and push an immutable tag
+aws ecr get-login-password | docker login --username AWS --password-stdin <ecr_repository_url>
+docker buildx build --platform linux/arm64 -f deployment/Dockerfile -t <ecr_repository_url>:1.0.0 --push .
+
+# 4. Environment: remote state from the bootstrap output, then apply
+cd ../envs/prod
+cp backend.hcl.example backend.hcl   # set the state_bucket output
+terraform init -backend-config=backend.hcl
+terraform apply -var container_image=<ecr_repository_url>:1.0.0 -var alert_email=you@example.com
+
+# 5. The evaluator user, created by an administrator
+aws cognito-idp admin-create-user --user-pool-id <user_pool_id> --username evaluator --message-action SUPPRESS
+aws cognito-idp admin-set-user-password --user-pool-id <user_pool_id> --username evaluator --password '<password>' --permanent
+```
+
+Each new version is one `terraform apply -var container_image=<url>:<version>`. ECS starts the new task next to the old one, and the [deployment circuit breaker](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/deployment-circuit-breaker.html) rolls back by itself if the new version never becomes healthy.
+
+**Use the API:**
+
+```bash
+TOKEN=$(aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH --client-id <client_id> \
+  --auth-parameters USERNAME=evaluator,PASSWORD='<password>' --query AuthenticationResult.AccessToken --output text)
+curl -H "Authorization: Bearer $TOKEN" <api_endpoint>/api/v1/events/<id>/availability
+```
+
+**Operate (runbook):**
+
+| Situation | Action |
 |---|---|
-| NAT Gateway and its public IPv4 | 38 |
-| Internal Application Load Balancer | 20 |
-| ECS Fargate ARM64 (1 task, 0.5 vCPU, 1 GB) | 15 |
-| AWS WAF (web ACL and 3 rules) | 8 |
-| CloudWatch (14 days of logs, alarms) | 3 |
-| CloudFront, DynamoDB on demand, SQS, Cognito, ECR | 1 |
-| **Total** | **85** |
+| Stop the application, keep the data | `terraform apply -var desired_count=0` (start again with `1`) |
+| Suspected abuse | `terraform apply -var throttling_rate_limit=0 -var throttling_burst_limit=0`: every request is rejected at the gateway |
+| Rotate the admin key | `aws ssm put-parameter --overwrite ...`, then `aws ecs update-service --force-new-deployment` (ECS reads secrets when a task starts) |
+| Messages in the dead-letter queue | Inspect them, fix the cause, and move them back with the SQS redrive (allowed only to their own queue) |
+| Remove everything | `terraform apply -var deletion_protection=false`, then `terraform destroy` |
 
-Public subnets without a NAT Gateway would save about USD 38, but would give the tasks public IPs; it is rejected for security.
+**Monitor.** Application logs and API access logs in CloudWatch (14 days, JSON access logs with the request ID, status, latency and authorizer error), and five alarms sent by email: request count, 5xx, dead-letter messages, age of the oldest message and CPU. Container Insights stays off: it adds paid custom metrics, and the alarms use the free `AWS/ECS` metrics.
 
-<!-- diagram: AWS production proposal (flowchart) -->
-<!-- diagram: dual write gap today vs transactional outbox (flowchart or sequence) -->
+### 16.6 Static analysis
+
+[Checkov](https://www.checkov.io/) scans the Terraform code in the CI (`./gradlew terraformScan` locally), with the image pinned by digest. Result: **125 checks passed, 0 failed, 19 skipped**. Each skipped check is written inside its resource with the reason, so a new finding fails the build:
+
+- **Customer managed KMS keys** (DynamoDB, CloudWatch Logs, S3, ECR): every service already encrypts at rest with AWS keys; a customer key costs money and is only needed for compliance.
+- **Retention, Container Insights, flow logs, access logs and replication of the state bucket**: paid extras without a requirement at this scale.
+- **Public IP of the tasks and unencrypted SNS topic**: the decisions of §16.2; CloudWatch alarms [cannot publish to a topic encrypted with the AWS managed key](https://repost.aws/knowledge-center/cloudwatch-configure-alarm-sns).
+- **Security groups "not attached"**: false positive; they are attached in other modules.
+
+### 16.7 At scale: what would change
+
+| Area | Budget design (implemented) | With real traffic |
+|---|---|---|
+| Entry | HTTP API with throttling | CloudFront + AWS WAF (managed rules, rate limits per IP) in front of an Application Load Balancer, or an API Gateway REST API with WAF and usage plans |
+| Network | Public subnets, no NAT | Private subnets with a NAT Gateway or interface endpoints; tasks without public IPs |
+| Compute | One service with every role | API and workers as separate services, scaled by requests and by queue depth |
+| Accounts | One account | AWS Organizations: one account per environment, with service control policies |
+| Delivery | Manual apply | GitHub Actions with OIDC: `terraform plan` on pull requests, apply with approval, release on version tags |
+| Observability | Logs and alarms | JSON logs with `correlationId`, business metrics, X-Ray tracing, dashboards |
+| Data and messaging | Dual write | Transactional outbox and SSE fed by DynamoDB Streams |
+| Identity | One user, gateway validation | Groups (`admin`) checked by the application with Spring Security |
 
 ## 17. Roadmap
 
@@ -966,7 +1510,7 @@ Ordered by priority:
 4. Re-publishing of stale `QUEUED` orders, and then a transactional outbox.
 5. Spring Security with JWT (Cognito) and an `admin` role.
 6. `version` attribute in the conditions, besides the status.
-7. Terraform for the AWS proposal (`envs/prod`, network, compute, IAM, observability).
+7. CD pipeline for AWS: push the release image to ECR with the OIDC role of `bootstrap`, `terraform plan` on pull requests and apply with approval.
 8. PIT in the CI with a mutation threshold; dependency scanning.
 9. Version tags and a changelog for each release.
 
@@ -987,7 +1531,7 @@ Ordered by priority:
 │   │   ├── sqs-listener/          # Reactive SQS consumer with graceful shutdown
 │   │   └── scheduler/             # Expiration job
 │   └── helpers/metrics/           # AWS SDK metrics in Micrometer
-├── infra/terraform/               # Infrastructure as code (local environment and modules)
+├── infra/terraform/               # Infrastructure as code: bootstrap, envs/local, envs/prod and their modules
 ├── deployment/Dockerfile          # Multi-stage image, non-root user
 ├── postman/                       # Postman collection with assertions
 ├── .github/workflows/ci.yml       # Continuous integration
@@ -1013,6 +1557,15 @@ Built by **Mateo** ([@whymvm](https://github.com/whymvm)).
 - Amazon DynamoDB: [condition expressions](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.ConditionExpressions.html), [transactions](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis.html), [read consistency](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadConsistency.html), [partition key design](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-partition-key-design.html), [sparse indexes](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-indexes-general-sparse-indexes.html), [TTL](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/TTL.html), [Streams](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Streams.html).
 - Amazon SQS: [standard queues](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/standard-queues.html), [visibility timeout](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html), [long polling](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-short-and-long-polling.html), [dead-letter queues](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html).
 - AWS Architecture Blog, [Exponential Backoff And Jitter](https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/).
+- Amazon API Gateway (HTTP APIs): [private integrations](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-private.html), [JWT authorizers](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-jwt-authorizer.html), [parameter mapping](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-parameter-mapping.html), [throttling](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-throttling.html), [quotas](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-quotas.html), [pricing](https://aws.amazon.com/api-gateway/pricing/).
+- Amazon ECS: [deployment circuit breaker](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/deployment-circuit-breaker.html), [service discovery](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/service-discovery.html), [task execution role](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_execution_IAM_role.html), [secrets from Parameter Store](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/secrets-envvar-ssm-paramstore.html), [task definition parameters](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters.html); [Fargate pricing](https://aws.amazon.com/fargate/pricing/).
+- Amazon Cognito: [access tokens](https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-the-access-token.html), [pricing](https://aws.amazon.com/cognito/pricing/).
+- DynamoDB [maximum throughput for on-demand tables](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/on-demand-capacity-mode-max-throughput.html) and [IAM for transactions](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html); [VPC pricing](https://aws.amazon.com/vpc/pricing/); [Route 53 pricing](https://aws.amazon.com/route53/pricing/); [AWS Cloud Map pricing](https://aws.amazon.com/cloud-map/pricing/); [AWS WAF protected resources](https://docs.aws.amazon.com/waf/latest/developerguide/waf-chapter.html); AWS re:Post, [CloudWatch alarm with an encrypted SNS topic](https://repost.aws/knowledge-center/cloudwatch-configure-alarm-sns).
+
+**Terraform and supply chain**
+- HashiCorp, [S3 backend and `use_lockfile`](https://developer.hashicorp.com/terraform/language/backend/s3); [AWS provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs).
+- GitHub, [OpenID Connect in AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws).
+- [Checkov](https://www.checkov.io/), static analysis of infrastructure as code.
 
 **Standards and security**
 - [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) (HTTP semantics), [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) (problem details), IETF drafts for the [`Idempotency-Key`](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/) and [`RateLimit`](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/) headers, [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html).

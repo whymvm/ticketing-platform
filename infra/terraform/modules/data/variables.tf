@@ -14,3 +14,12 @@ variable "deletion_protection" {
   type        = bool
   default     = true
 }
+
+variable "max_request_units" {
+  description = "Maximum read and write request units per second of each on-demand table. Null means no maximum (local)."
+  type = object({
+    read  = number
+    write = number
+  })
+  default = null
+}

@@ -30,7 +30,7 @@ Todo corre en local con un solo comando: `docker compose up`.
 13. [Ciclo DevOps](#13-ciclo-devops)
 14. [Infraestructura como código](#14-infraestructura-como-código)
 15. [Limitaciones conocidas](#15-limitaciones-conocidas)
-16. [Qué cambiaría en producción](#16-qué-cambiaría-en-producción)
+16. [Producción en AWS](#16-producción-en-aws)
 17. [Hoja de ruta](#17-hoja-de-ruta)
 18. [Estructura del proyecto](#18-estructura-del-proyecto)
 19. [Licencia y autor](#19-licencia-y-autor)
@@ -87,8 +87,40 @@ La orden tiene su propio ciclo de vida, porque la asincronía exige tres estados
 
 `SOLD` y `COMPLIMENTARY` no tienen salida: en el código cada estado de la orden es un tipo sellado que solo tiene sus transiciones válidas, así que revertir una venta **no compila**.
 
-<!-- diagrama: máquina de estados de la orden (stateDiagram-v2) -->
-<!-- diagrama: estados de la entrada y contadores del inventario (stateDiagram-v2) -->
+```mermaid
+stateDiagram-v2
+    [*] --> QUEUED: POST /orders
+    [*] --> COMPLIMENTARY: cortesías emitidas
+    QUEUED --> RESERVED: entradas reservadas por 10 min
+    QUEUED --> REJECTED: SOLD_OUT o EVENT_CLOSED
+    RESERVED --> PENDING_CONFIRMATION: el cliente confirma
+    RESERVED --> EXPIRED: RESERVATION_TIMEOUT
+    PENDING_CONFIRMATION --> SOLD: pago APPROVED
+    PENDING_CONFIRMATION --> REJECTED: PAYMENT_DECLINED
+    PENDING_CONFIRMATION --> EXPIRED: PAYMENT_TIMEOUT
+    SOLD --> [*]
+    COMPLIMENTARY --> [*]
+    REJECTED --> [*]
+    EXPIRED --> [*]
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> AVAILABLE: evento creado, available = capacity
+    AVAILABLE --> RESERVED: reserva
+    RESERVED --> PENDING_CONFIRMATION: confirmación
+    RESERVED --> AVAILABLE: reserva vencida
+    PENDING_CONFIRMATION --> SOLD: pago aprobado
+    PENDING_CONFIRMATION --> AVAILABLE: pago rechazado o vencido
+    AVAILABLE --> COMPLIMENTARY: cortesías emitidas
+    SOLD --> [*]
+    COMPLIMENTARY --> [*]
+    note right of AVAILABLE
+        Un contador por estado en el evento.
+        available + reserved + pendingConfirmation
+        + sold + complimentary = capacity
+    end note
+```
 
 ## 3. Stack tecnológico
 
@@ -161,12 +193,12 @@ Los mismos pasos existen como tareas de Gradle (`./gradlew tasks --group ticketi
 | `./gradlew mutationTest` | Pruebas de mutación (PIT); es lenta |
 | `./gradlew localUp` | Construye la imagen y levanta el entorno; termina cuando la aplicación está sana |
 | `./gradlew postmanTest` | Corre la colección de Postman contra `http://localhost:8080` |
-| `./gradlew smokeTest` | `localUp` + `postmanTest`, la misma prueba de punta a punta que corre el CI |
+| `./gradlew smokeTest` | `localUp` + `postmanTest`: prueba de punta a punta contra el entorno levantado (bajo demanda, no en el CI) |
 | `./gradlew localLogs` | Últimas 200 líneas del log de la aplicación |
 | `./gradlew localDown` / `localReset` | Detiene el entorno, conservando o borrando sus volúmenes |
 | `./gradlew terraformValidate` | Verifica el formato y valida el código de Terraform |
 
-Si `./gradlew build`, `./gradlew terraformValidate` y `./gradlew smokeTest` pasan en local, un *pull request* debería pasar el CI.
+Si `./gradlew build`, `./gradlew integrationTest`, `./gradlew terraformValidate` y `./gradlew terraformScan` pasan en local, un *pull request* debería pasar el CI.
 
 ### Herramientas
 
@@ -392,7 +424,20 @@ La [colección de Postman](postman/ticketing-platform.postman_collection.json) c
 - **Los administradores** crean eventos y emiten cortesías.
 - **El proveedor de pagos** notifica el resultado de cada pago.
 
-<!-- diagrama: contexto del sistema (C4 nivel 1) -->
+```mermaid
+flowchart LR
+    customer(["Cliente"])
+    visitor(["Visitante"])
+    admin(["Administrador"])
+    provider(["Proveedor de pagos"])
+    platform["Ticketing Platform<br/>API reactiva, consumidor SQS, scheduler"]
+    customer -->|"crea, confirma y consulta órdenes"| platform
+    visitor -->|"sigue la disponibilidad (SSE)"| platform
+    admin -->|"crea eventos, emite cortesías"| platform
+    provider -->|"notifica el resultado de los pagos"| platform
+    platform -->|"eventos, órdenes, historial, claves"| dynamo[("DynamoDB")]
+    platform -->|"reservas por procesar"| sqs[["SQS"]]
+```
 
 ### 7.2 Contenedores (entorno local)
 
@@ -406,8 +451,36 @@ Un solo contenedor de aplicación tiene tres roles: la API reactiva, el consumid
 | DynamoDB | Tablas `events`, `orders` (con el índice `expiring-orders`), `order-history` e `idempotency` |
 | SQS | Cola `reservations` con su DLQ (máximo 5 recepciones) |
 
-<!-- diagrama: contenedores locales (docker compose) -->
-<!-- diagrama: orden de arranque de los servicios de compose -->
+```mermaid
+flowchart TB
+    client(["Cliente<br/>Postman, curl, navegador"]) -->|"HTTP :8080"| api
+    subgraph compose["docker compose"]
+        subgraph app["app"]
+            api["API reactiva"]
+            listener["Consumidor SQS"]
+            scheduler["Scheduler, cada 30 s"]
+        end
+        subgraph localstack["localstack"]
+            ddb[("DynamoDB<br/>events, orders, order-history, idempotency")]
+            queue[["SQS reservations<br/>y su DLQ"]]
+        end
+        terraform["terraform<br/>crea las tablas y las colas"]
+    end
+    api -->|"orden, historial y clave en una transacción"| ddb
+    api -->|"ORDER_PLACED"| queue
+    queue -->|"long polling"| listener
+    listener -->|"reserva o rechaza"| ddb
+    scheduler -->|"vence"| ddb
+    terraform -.->|"terraform apply"| ddb
+    terraform -.-> queue
+```
+
+```mermaid
+flowchart LR
+    ls["localstack"] -->|"healthy"| tf["terraform<br/>init y apply"]
+    tf -->|"terminó con éxito"| app["app"]
+    app -->|"readiness probe UP"| ready(["lista en :8080"])
+```
 
 ### 7.3 Clean Architecture
 
@@ -437,7 +510,28 @@ Las dependencias solo apuntan hacia adentro: el dominio no conoce Spring, ni AWS
 
 Los puertos son pequeños y con nombre de negocio (`OrderCreator`, `OrderRetriever`, `InventoryUpdater`, `ComplimentaryIssuer`…), así que cada caso de uso depende solo de lo que usa (segregación de interfaces).
 
-<!-- diagrama: módulos de Clean Architecture y sus dependencias -->
+```mermaid
+flowchart TB
+    subgraph application["Application"]
+        appservice["app-service<br/>Spring Boot, wiring, Clock"]
+    end
+    subgraph infrastructure["Infrastructure"]
+        web["entry-points/reactive-web"]
+        listener["entry-points/sqs-listener"]
+        sched["entry-points/scheduler"]
+        dynamo["driven-adapters/dynamo-db"]
+        sender["driven-adapters/sqs-sender"]
+        metrics["helpers/metrics"]
+    end
+    subgraph domain["Domain"]
+        usecase["usecase<br/>un caso de uso por acción"]
+        model["model<br/>entidades, estados sellados, puertos"]
+    end
+    appservice --> web & listener & sched & dynamo & sender & metrics
+    web & listener & sched -->|"llaman"| usecase
+    dynamo & sender -->|"implementan los puertos"| model
+    usecase --> model
+```
 
 ## 8. Flujos principales
 
@@ -452,9 +546,66 @@ Los puertos son pequeños y con nombre de negocio (`OrderCreator`, `OrderRetriev
 5. Publica `ORDER_PLACED` (solo el id de la orden: [*claim check*](https://www.enterpriseintegrationpatterns.com/patterns/messaging/StoreInLibrary.html)) y responde `202` con `Location` y `Retry-After: 1`.
 6. Si dos peticiones con la misma clave compiten, la condición sobre la clave deja ganar a una sola; la otra relee la clave y responde con la orden ganadora.
 
-<!-- diagrama: decisiones de POST /orders (flujo) -->
-<!-- diagrama: crear una orden, camino feliz (secuencia) -->
-<!-- diagrama: reintento y carrera con la misma Idempotency-Key (secuencia) -->
+```mermaid
+flowchart TD
+    start(["POST /orders"]) --> valid{"¿Clave y orden válidas?"}
+    valid -->|"no"| e400["400: clave, cantidad o cliente"]
+    valid -->|"sí"| known{"¿Clave guardada para este<br/>cliente y sin vencer?"}
+    known -->|"sí"| same{"¿Misma huella?"}
+    same -->|"sí"| replay["202 con la orden original<br/>Idempotent-Replayed: true"]
+    same -->|"no"| reused["422 IDEMPOTENCY_KEY_REUSED"]
+    known -->|"no"| exists{"¿Existe el evento?"}
+    exists -->|"no"| e404["404 EVENT_NOT_FOUND"]
+    exists -->|"sí"| started{"¿Ya empezó el evento?"}
+    started -->|"sí"| closed["422 EVENT_CLOSED"]
+    started -->|"no"| tx["Una transacción:<br/>orden QUEUED, historial, clave"]
+    tx -->|"otra petición tomó la clave"| same
+    tx -->|"ok"| publish["Publicar ORDER_PLACED"]
+    publish --> accepted["202, Location, Retry-After: 1"]
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor C as Cliente
+    participant API as API reactiva
+    participant UC as PlaceOrderUseCase
+    participant DB as DynamoDB
+    participant Q as SQS
+    C->>API: POST /orders con X-Customer-Id e Idempotency-Key
+    API->>UC: run(orden, cliente, clave)
+    UC->>DB: GetItem de la clave, lectura fuerte
+    DB-->>UC: no existe
+    UC->>DB: GetItem del evento
+    DB-->>UC: el evento existe y no ha empezado
+    UC->>DB: TransactWriteItems: orden QUEUED, entrada de historial, clave
+    DB-->>UC: ok
+    UC->>Q: SendMessage ORDER_PLACED, solo el id de la orden
+    UC-->>API: orden creada
+    API-->>C: 202 Accepted, Location, Retry-After: 1
+```
+
+```mermaid
+sequenceDiagram
+    actor A as Petición A
+    actor B as Petición B, misma clave
+    participant UC as PlaceOrderUseCase
+    participant DB as DynamoDB
+    par al mismo tiempo
+        A->>UC: POST /orders con la clave K
+    and
+        B->>UC: POST /orders con la clave K
+    end
+    UC->>DB: transacción de A, condición: la clave K está libre
+    UC->>DB: transacción de B, condición: la clave K está libre
+    DB-->>UC: A gana
+    DB-->>UC: B se cancela, falló la condición sobre la clave
+    UC->>DB: B vuelve a leer la clave K
+    DB-->>UC: registro de la orden de A
+    UC-->>A: 202 con la orden A, Idempotent-Replayed: false
+    UC-->>B: 202 con la orden A, Idempotent-Replayed: true
+    Note over A,DB: Un reintento posterior con K y los mismos datos también recibe la orden A.<br/>Con otros datos recibe 422 IDEMPOTENCY_KEY_REUSED.
+```
 
 ### 8.2 Reservar las entradas (consumidor SQS)
 
@@ -472,9 +623,62 @@ Los puertos son pequeños y con nombre de negocio (`OrderCreator`, `OrderRetriev
 | Mensaje ilegible o de otro tipo | No se borra → DLQ |
 | Error técnico o conflictos que persisten | No se borra → se reentrega y luego va a la DLQ |
 
-<!-- diagrama: qué pasa con cada mensaje (flujo) -->
-<!-- diagrama: reservar entradas (secuencia) -->
-<!-- diagrama: dos consumidores compiten por la última entrada (secuencia) -->
+```mermaid
+flowchart TD
+    msg(["Mensaje recibido"]) --> readable{"¿ORDER_PLACED legible<br/>con id de orden?"}
+    readable -->|"no"| keep["No se borra"]
+    readable -->|"sí"| queued{"¿La orden sigue en QUEUED?"}
+    queued -->|"no, mensaje duplicado"| noop["Se borra, sin efecto"]
+    queued -->|"sí"| started{"¿Ya empezó el evento?"}
+    started -->|"sí"| closed["REJECTED, EVENT_CLOSED"]
+    started -->|"no"| tx{"Transacción de reserva"}
+    tx -->|"ok"| reserved["RESERVED"]
+    tx -->|"no hay entradas suficientes"| soldout["REJECTED, SOLD_OUT"]
+    tx -->|"TransactionConflict"| retry["Reintento, hasta 3 veces<br/>backoff desde 50 ms"]
+    retry --> tx
+    tx -->|"error técnico o conflictos que persisten"| keep
+    closed & reserved & soldout --> deleted["Se borra: es una respuesta de negocio válida"]
+    keep --> visible["Visible otra vez a los 15 s"]
+    visible --> dlq[["DLQ<br/>tras 5 recepciones"]]
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Q as SQS
+    participant L as Consumidor SQS
+    participant UC as ReserveTicketsUseCase
+    participant DB as DynamoDB
+    L->>Q: ReceiveMessage, hasta 10, long polling 10 s
+    Q-->>L: ORDER_PLACED con el id de la orden
+    L->>UC: run(orderId)
+    UC->>DB: GetItem de la orden, lectura fuerte
+    DB-->>UC: orden QUEUED
+    UC->>DB: GetItem del evento
+    DB-->>UC: el evento no ha empezado
+    UC->>DB: TransactWriteItems
+    Note right of DB: evento: available - n, reserved + n, si available >= n<br/>orden: RESERVED, si status = QUEUED<br/>historial: entrada nueva
+    DB-->>UC: ok
+    UC-->>L: listo
+    L->>Q: DeleteMessage, solo después de guardar el efecto
+```
+
+```mermaid
+sequenceDiagram
+    participant C1 as Consumidor 1, orden A
+    participant C2 as Consumidor 2, orden B
+    participant DB as DynamoDB
+    Note over DB: evento: available = 1
+    par al mismo tiempo
+        C1->>DB: transacción A: available - 1, si available >= 1
+    and
+        C2->>DB: transacción B: available - 1, si available >= 1
+    end
+    DB-->>C1: ok, la orden A queda RESERVED y available = 0
+    DB-->>C2: cancelada, falló la condición sobre el evento
+    C2->>DB: orden B: REJECTED con SOLD_OUT, si status = QUEUED
+    Note over C1,DB: Solo una escritura condicional puede tomar la última entrada.<br/>Sin bloqueos ni lectura, cálculo y escritura en memoria.
+```
 
 ### 8.3 Confirmación y pago
 
@@ -487,8 +691,46 @@ Los puertos son pequeños y con nombre de negocio (`OrderCreator`, `OrderRetriev
    - una notificación tardía (después del plazo) se rechaza con `409 PAYMENT_EXPIRED`: una aprobación tardía nunca vende entradas que ya se liberaron;
    - la misma notificación otra vez devuelve la orden tal como está, porque los proveedores repiten sus notificaciones.
 
-<!-- diagrama: confirmar la orden (secuencia) -->
-<!-- diagrama: notificación de pago, aprobado y rechazado (secuencia) -->
+```mermaid
+sequenceDiagram
+    autonumber
+    actor C as Cliente
+    participant UC as ConfirmOrderUseCase
+    participant DB as DynamoDB
+    C->>UC: POST /orders/ID/confirm
+    UC->>DB: GetItem de la orden, lectura fuerte
+    DB-->>UC: orden RESERVED de este cliente
+    alt el tiempo de la reserva terminó
+        UC-->>C: 409 RESERVATION_EXPIRED
+    else sigue reservada
+        UC->>DB: TransactWriteItems
+        Note right of DB: evento: reserved - n, pendingConfirmation + n<br/>orden: PENDING_CONFIRMATION, plazo de pago de 5 min<br/>si status = RESERVED
+        DB-->>UC: ok
+        UC-->>C: 202 PENDING_CONFIRMATION
+    end
+    Note over C,DB: Confirmar otra vez una orden en PENDING_CONFIRMATION o SOLD la devuelve tal como está.
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as Proveedor de pagos
+    participant UC as RecordPaymentUseCase
+    participant DB as DynamoDB
+    P->>UC: POST /orders/ID/payment con APPROVED o DECLINED
+    UC->>DB: GetItem de la orden
+    DB-->>UC: orden PENDING_CONFIRMATION
+    alt el plazo de pago terminó
+        UC-->>P: 409 PAYMENT_EXPIRED
+    else APPROVED
+        UC->>DB: pendingConfirmation - n, sold + n, orden SOLD
+        UC-->>P: 200 SOLD
+    else DECLINED
+        UC->>DB: pendingConfirmation - n, available + n, orden REJECTED
+        UC-->>P: 200 REJECTED con PAYMENT_DECLINED
+    end
+    Note over P,DB: La misma notificación otra vez devuelve la orden tal como está.<br/>El resultado contrario responde 409 ORDER_NOT_AWAITING_PAYMENT.
+```
 
 ### 8.4 Vencimiento de reservas y pagos
 
@@ -499,8 +741,46 @@ Los puertos son pequeños y con nombre de negocio (`OrderCreator`, `OrderRetriev
 
 Todas las instancias corren el scheduler; no hace falta elegir un líder, porque por cada orden gana una sola escritura condicional. El reloj se vuelve a leer en cada ejecución (`Flux.defer`): una versión anterior lo leía una sola vez al arrancar, así que las reservas creadas después nunca vencían. Ahora una prueba se suscribe dos veces al mismo flujo y comprueba que cada ejecución usa un instante nuevo.
 
-<!-- diagrama: scheduler de vencimientos (secuencia) -->
-<!-- diagrama: carrera entre confirmar y vencer (secuencia) -->
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Scheduler, cada 30 s
+    participant UC as ReleaseExpiredReservationsUseCase
+    participant IDX as Índice expiring-orders
+    participant DB as DynamoDB
+    S->>UC: run(), vuelve a leer el reloj
+    UC->>IDX: Query de los 4 fragmentos en paralelo, expiresAt <= ahora
+    IDX-->>UC: órdenes RESERVED y PENDING_CONFIRMATION con el plazo vencido
+    loop cada orden, hasta 16 a la vez
+        UC->>UC: verifica otra vez el instante exacto
+        UC->>DB: TransactWriteItems
+        Note right of DB: evento: reserved o pendingConfirmation - n, available + n<br/>orden: EXPIRED, sale del índice<br/>si su estado no cambió
+    end
+```
+
+```mermaid
+sequenceDiagram
+    actor C as Cliente
+    participant CU as ConfirmOrderUseCase
+    participant S as Scheduler
+    participant DB as DynamoDB
+    Note over DB: orden RESERVED, su plazo se cumple en este instante
+    par al mismo tiempo
+        CU->>DB: PENDING_CONFIRMATION, si status = RESERVED
+    and
+        S->>DB: EXPIRED, si status = RESERVED
+    end
+    alt gana el scheduler
+        DB-->>S: ok, las entradas vuelven a available
+        DB-->>CU: cancelada, el estado ya no es RESERVED
+        CU->>DB: vuelve a leer la orden
+        CU-->>C: 409 ORDER_NOT_RESERVED, está EXPIRED
+    else gana la confirmación
+        DB-->>CU: ok
+        CU-->>C: 202 PENDING_CONFIRMATION
+        DB-->>S: cancelada, la orden se omite
+    end
+```
 
 ### 8.5 Disponibilidad en tiempo real (SSE)
 
@@ -511,7 +791,30 @@ Todas las instancias corren el scheduler; no hace falta elegir un líder, porque
 
 Medido en local: 5 clientes durante 10 s hicieron 20 lecturas a DynamoDB, en lugar de unas 60 con un *polling* por suscriptor.
 
-<!-- diagrama: SSE con fuente compartida (secuencia) -->
+```mermaid
+sequenceDiagram
+    actor V1 as Visitante 1
+    actor V2 as Visitante 2
+    participant API as Stream SSE
+    participant F as Fuente compartida de polling
+    participant DB as DynamoDB
+    V1->>API: GET /events/ID/availability/stream
+    API->>DB: ¿existe el evento?, y su estado actual
+    API-->>V1: evento availability
+    API->>F: suscripción, el primer visitante arranca el polling
+    V2->>API: GET /events/ID/availability/stream
+    API->>DB: ¿existe el evento?, y su estado actual
+    API-->>V2: evento availability
+    API->>F: suscripción, comparte el mismo polling
+    loop cada segundo, mientras alguien mire
+        F->>DB: GetItem del evento
+        F-->>API: disponibilidad
+        API-->>V1: solo si cambió
+        API-->>V2: solo si cambió
+    end
+    API-->>V1: comentario de heartbeat cada 15 s
+    Note over F,DB: Cuando se va el último visitante, el polling se detiene.
+```
 
 ### 8.6 Cortesías
 
@@ -519,7 +822,26 @@ Las cortesías **no** pasan por la cola (ADR 0023). Una transacción de 4 ítems
 
 Medido en local: 20 peticiones en paralelo de 1 cortesía sobre un evento de 5 entradas dieron exactamente 5 `201` y 15 `409`.
 
-<!-- diagrama: emitir cortesías (secuencia) -->
+```mermaid
+sequenceDiagram
+    autonumber
+    actor A as Administrador
+    participant UC as IssueComplimentaryUseCase
+    participant DB as DynamoDB
+    A->>UC: POST /events/ID/complimentary con X-Admin-Key e Idempotency-Key
+    Note right of A: 403 ADMIN_ACCESS_DENIED sin una clave de administración válida
+    UC->>DB: GetItem de la clave de idempotencia del organizador
+    UC->>DB: GetItem del evento, existe y no ha empezado
+    UC->>DB: TransactWriteItems con 4 ítems
+    Note right of DB: evento: available - n, complimentary + n, si available >= n<br/>orden COMPLIMENTARY<br/>entrada de historial<br/>clave de idempotencia
+    alt hay entradas suficientes
+        DB-->>UC: ok
+        UC-->>A: 201 COMPLIMENTARY y Location
+    else no hay entradas suficientes
+        DB-->>UC: cancelada, falló la condición sobre el evento
+        UC-->>A: 409 TICKETS_SOLD_OUT, no se escribe nada
+    end
+```
 
 ### 8.7 Apagado ordenado del consumidor
 
@@ -527,7 +849,24 @@ El *listener* es un [`SmartLifecycle`](https://docs.spring.io/spring-framework/d
 
 Antes de este cambio, un mensaje recibido por el *poll* de una instancia que se apagaba esperaba todo el *visibility timeout* (15 s) después de cada reinicio. El primer arreglo, cancelar el *poll*, no funcionó: cancelar desde el cliente no impide que el servidor entregue el mensaje. Verificado después en 5 de 5 reinicios (ADR 0021).
 
-<!-- diagrama: apagado ordenado del listener SQS (secuencia) -->
+```mermaid
+sequenceDiagram
+    participant D as Docker o ECS
+    participant SP as Spring
+    participant L as Listener SQS
+    participant Q as SQS
+    participant W as Servidor web
+    Note over L,Q: hay un poll abierto, espera hasta 10 s
+    D->>SP: SIGTERM
+    SP->>L: stop()
+    L->>L: deja de pedir mensajes
+    Q-->>L: mensajes del poll abierto
+    L->>L: los procesa
+    L->>Q: DeleteMessage
+    L-->>SP: detenido
+    SP->>W: apagado ordenado
+    SP-->>D: el proceso termina antes de 35 s
+```
 
 ## 9. Decisiones de arquitectura
 
@@ -757,6 +1096,7 @@ Cada decisión importante queda registrada abajo como un ADR breve ([*Architectu
 - **Por qué:** costo cero, solo hace falta Docker, e infraestructura como código real y modular: los módulos no saben que corren en local y se reutilizarían en producción.
 - **Pros:** entorno reproducible; IaC validada en el CI.
 - **Contras:** la arquitectura en AWS se defiende con su diseño, sus decisiones y sus costos, no en vivo.
+- **Actualización:** el entorno productivo ya existe como Terraform (`envs/prod`), validado y escaneado en el CI y listo para aplicar; el entorno local sigue siendo el que se ejecuta (§16).
 
 #### ADR 0017 · Identidad declarada, sin autenticación
 
@@ -799,7 +1139,7 @@ Cada decisión importante queda registrada abajo como un ADR breve ([*Architectu
 
 ### Qué no está implementado
 
-**No hay autenticación ni Spring Security**, no hay límite de peticiones y el *webhook* de pagos está abierto. La lista completa, organizada según el OWASP Top 10, está en [§15.2](#152-seguridad-owasp-top-10).
+En local **no hay autenticación ni Spring Security**, no hay límite de peticiones y el *webhook* de pagos está abierto. En AWS, el entorno productivo agrega un JWT validado por API Gateway (el cliente sale del token, no de un encabezado), *throttling* e IAM de mínimo privilegio ([§16.3](#163-seguridad-y-la-factura)); la aplicación sigue sin hacer autorización propia. La lista completa, organizada según el OWASP Top 10, está en [§15.2](#152-seguridad-owasp-top-10).
 
 ## 12. Pruebas y calidad
 
@@ -811,7 +1151,7 @@ Cada decisión importante queda registrada abajo como un ADR breve ([*Architectu
 | Llamadas bloqueantes | BlockHound | Ninguna llamada bloqueante en un hilo reactivo |
 | Arquitectura | ArchUnit, `validateStructure` | Reglas de capas de Clean Architecture |
 | Concurrencia | Testcontainers + LocalStack + Terraform real | Sin sobreventa con 50 compras concurrentes |
-| Punta a punta | Postman + Newman | Todos los flujos y casos de error contra el entorno levantado, en cada *pull request* |
+| Punta a punta | Postman + Newman | Todos los flujos y casos de error contra el entorno levantado, bajo demanda (`./gradlew smokeTest`) |
 | Mutación | PIT | Que las pruebas verifiquen el código, no solo lo recorran |
 
 Resultados al 2026-10-11:
@@ -829,38 +1169,90 @@ Cómo cubre el proyecto las ocho fases **Plan → Code → Build → Test → Re
 |---|---|---|---|
 | **Plan** | Requisitos, modelo de dominio, diseño de datos, contrato de la API y arquitectura diseñados antes de programar; decisiones registradas como ADR (§9); *issues* de GitHub por funcionalidad | ✅ | — |
 | **Code** | [Gitflow](https://nvie.com/posts/a-successful-git-branching-model/): `feature/*` → `develop` mediante *pull requests*, `release/*` y `hotfix/*` → `main`; *commits* pequeños y semánticos; plugin de scaffold para módulos y casos de uso | ✅ | — |
-| **Build** | *Wrapper* de Gradle con *build cache* y *configuration cache*; Dockerfile *multi-stage* que compila dentro de Docker | ✅ | No se publica la imagen en un registro |
+| **Build** | *Wrapper* de Gradle con *build cache* y *configuration cache*; Dockerfile *multi-stage* que compila dentro de Docker; imagen ARM64 para Fargate | ✅ | — |
 | **Test** | Pruebas unitarias, reactivas, de arquitectura, de concurrencia, de punta a punta y de mutación; umbral de cobertura del 90 % en el *build* y en el CI | ✅ | PIT corre bajo demanda, no en el CI con un umbral |
-| **Release** | Ramas `release/*` de Gitflow y `main` como línea publicada | 🟡 | Todavía sin *tags* de versión ni *changelog*; sin versionado automático |
-| **Deploy** | `docker compose up` despliega todo el entorno local; Terraform crea la infraestructura | 🟡 | Solo local; sin *pipeline* de CD; AWS es una propuesta documentada (§16) |
-| **Operate** | [*Health probes*](https://docs.spring.io/spring-boot/reference/actuator/endpoints.html) (*liveness*, *readiness*), *health check* de Docker, apagado ordenado alineado entre Spring y Docker, DLQ, consumidores idempotentes | 🟡 | La *readiness* no verifica DynamoDB ni SQS; sin *runbook* para reprocesar la DLQ |
-| **Monitor** | Métricas de Micrometer en formato Prometheus (llamadas al SDK de AWS, duración de cada mensaje procesado) | 🟡 | Logs de texto sin `correlationId`; sin métricas de negocio; sin *dashboards* ni alarmas; sin trazas |
+| **Release** | Gitflow: `release/x.y.z` se integra en `main` y se etiqueta `vX.Y.Z`. El *tag* ejecuta el *workflow* de *release*: verifica que el commit esté en `main`, lo construye y lo prueba otra vez, publica la imagen Docker en GitHub Packages para amd64 y arm64 (con *provenance* y SBOM) y crea el GitHub Release con notas generadas | ✅ | Un archivo de *changelog*; publicar en ECR le corresponde a un *pipeline* de CD (§16.5) |
+| **Deploy** | `docker compose up` despliega todo el entorno local; `envs/prod` despliega en AWS con un `terraform apply` por versión, actualización gradual y reversión automática (§16.5) | 🟡 | Se aplica a mano, no con un *pipeline*; todavía sin `terraform plan` en los *pull requests* |
+| **Operate** | [*Health probes*](https://docs.spring.io/spring-boot/reference/actuator/endpoints.html) (*liveness*, *readiness*), *health checks* del contenedor, apagado ordenado alineado entre Spring, Docker y ECS, DLQ, consumidores idempotentes; *runbook* de AWS con *kill switch* (§16.5) | 🟡 | La *readiness* no verifica DynamoDB ni SQS |
+| **Monitor** | Métricas de Micrometer en formato Prometheus; en AWS, logs en CloudWatch, logs de acceso en JSON y cinco alarmas por correo (abuso, 5xx, DLQ, edad de la cola, CPU), más un presupuesto mensual (§16.5) | 🟡 | Logs de la aplicación en texto, sin `correlationId`; sin métricas de negocio, *dashboards* ni trazas |
 
 ### Integración continua
 
-Cada *pull request* a `develop` o `main`, y cada *push* a `develop`, `main`, `release/**` y `hotfix/**`, ejecuta:
+Cada *pull request* a `develop` o `main`, y cada *push* a `develop`, `main`, `release/**` y `hotfix/**`, ejecuta cuatro *jobs* independientes en paralelo:
 
 | Job | Qué hace |
 |---|---|
-| Build and test | `./gradlew build` con JDK 25: compilación, validación de la estructura, pruebas unitarias y umbral de cobertura; sube los reportes como artefactos |
-| Validate Terraform | `terraform fmt -check` y `terraform validate` |
-| Docker smoke test | Levanta todo el entorno con Docker Compose, espera a que la aplicación esté sana y corre la colección de Postman con Newman |
+| Build and test | `./gradlew build coverageReport` con JDK 25: compilación, validación de la estructura, pruebas unitarias y umbral de cobertura del 90 %; la cobertura se muestra en el resumen de la ejecución y los reportes se suben como artefactos |
+| Validate Terraform | `terraform fmt -check`, `terraform validate` de los tres stacks (`envs/local`, `envs/prod`, `bootstrap`) y un escaneo de seguridad con [Checkov](https://www.checkov.io/) que falla ante cualquier hallazgo nuevo (§16.6) |
+| Integration tests | `./gradlew integrationTest`: la prueba de concurrencia contra LocalStack, con los recursos creados por el Terraform real (Testcontainers) |
+| Docker image | Construye la imagen productiva en un *runner* ARM64 (la arquitectura de Fargate) y verifica que arranca con el sistema de archivos raíz de solo lectura |
 
 Un *push* nuevo al mismo *pull request* cancela la ejecución desactualizada, y la regla de la rama exige el CI en verde para integrar en `develop`.
 
-<!-- diagrama: fases DevOps y su correspondencia en el repositorio (flujo) -->
-<!-- diagrama: jobs del pipeline de CI (flujo) -->
+### Release
+
+[Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow): una rama `release/x.y.z` sale de `develop`, se integra en `main` y en `develop`, y `main` se etiqueta `vX.Y.Z`. Subir el *tag* ejecuta `.github/workflows/release.yml`:
+
+| Job | Qué hace |
+|---|---|
+| Verify the tagged commit | Falla si el *tag* no está en `main`; corre `./gradlew build` sobre ese commit exacto |
+| Publish the Docker image | Construye `linux/amd64` y `linux/arm64` (el jar se compila una sola vez, de forma nativa; solo la etapa final se construye por plataforma) y publica `ghcr.io/whymvm/ticketing-platform` con los *tags* `X.Y.Z`, `X.Y` y `latest`, las etiquetas OCI, una atestación de *provenance* y un SBOM |
+| Create the GitHub release | `gh release create` con las notas generadas a partir de los *pull requests* integrados y el comando para descargar la imagen |
+
+El *token* del *workflow* solo recibe `packages: write` y `contents: write` en los *jobs* que los necesitan. Una versión publicada se ejecuta con su infraestructura sin construir nada:
+
+```bash
+APP_IMAGE=ghcr.io/whymvm/ticketing-platform:1.0.0 docker compose up --no-build --wait
+```
+
+El CI y el *release* son *workflows* separados porque tienen un disparador y unos permisos distintos: el CI corre en cada cambio con un *token* de solo lectura; el *release* corre solo con un *tag* de versión y escribe. Un despliegue sería un tercero (CD), con aprobación manual y credenciales de AWS mediante OIDC.
+
+```mermaid
+flowchart LR
+    plan["Plan<br/>requisitos, ADR, issues"] --> code["Code<br/>Gitflow, pull requests"]
+    code --> build["Build<br/>Gradle, Dockerfile"]
+    build --> test["Test<br/>unitarias, integración, cobertura, PIT"]
+    test --> release["Release<br/>tag de versión, imagen en GHCR, GitHub Release"]
+    release --> deploy["Deploy<br/>docker compose, terraform apply"]
+    deploy --> operate["Operate<br/>health probes, apagado ordenado, runbook"]
+    operate --> monitor["Monitor<br/>métricas, logs, alarmas"]
+    monitor -.->|"retroalimentación"| plan
+```
+
+```mermaid
+flowchart LR
+    subgraph ci["ci.yml, cada pull request y push"]
+        change(["Cambio"]) --> build["Build and test<br/>compilación, pruebas unitarias, umbral de cobertura"]
+        change --> integ["Integration tests<br/>LocalStack y el Terraform real"]
+        change --> tf["Validate Terraform<br/>fmt, validate, Checkov"]
+        change --> img["Docker image<br/>build ARM64, verificación de arranque"]
+        build & integ & tf & img --> green{"¿Todo en verde?"}
+        green -->|"sí"| merge["Integrar en develop"]
+    end
+    subgraph rel["release.yml, tag de versión en main"]
+        tag(["vX.Y.Z"]) --> verify["Verify<br/>tag en main, build"]
+        verify --> publish["Publicar la imagen<br/>ghcr.io, amd64 y arm64"]
+        publish --> ghrel["GitHub Release"]
+    end
+```
 
 ## 14. Infraestructura como código
 
-La infraestructura local la crea Terraform, no *scripts*: el *provider* de AWS apunta a LocalStack, así que el mismo código crearía los recursos reales en AWS.
+Todos los entornos los crea Terraform, no *scripts*. En local el *provider* de AWS apunta a LocalStack; en AWS, `envs/prod` reutiliza los mismos módulos `data` y `messaging` y agrega los de red, cómputo, entrada, identidad y observabilidad (§16).
 
 ```text
 infra/terraform/
+├── bootstrap/           # una vez por cuenta: bucket del estado, registro ECR, rol de release con GitHub OIDC, presupuesto mensual
 ├── envs/local/          # entorno local: provider apuntando a LocalStack, tags por defecto
+├── envs/prod/           # AWS: estado remoto en S3, todos los módulos de abajo
 └── modules/
     ├── data/            # tablas DynamoDB: events, orders (+ GSI expiring-orders), order-history, idempotency (+ TTL)
-    └── messaging/       # colas SQS, cada una con su DLQ y su política de redrive
+    ├── messaging/       # colas SQS, cada una con su DLQ y su política de redrive
+    ├── network/         # VPC, subredes públicas, gateway endpoint de DynamoDB, security groups
+    ├── compute/         # ECS Fargate, roles IAM, autoscaling, Cloud Map
+    ├── auth/            # Cognito
+    ├── edge/            # API Gateway HTTP API
+    └── observability/   # alarmas y su topic SNS
 ```
 
 | Decisión | Detalle |
@@ -870,9 +1262,10 @@ infra/terraform/
 | Idempotencia con TTL nativo | DynamoDB borra las claves a las 24 h; la aplicación ignora las claves vencidas que aún no se han borrado |
 | Colas de mensajes fallidos | `maxReceiveCount = 5`; retención de 4 días en la cola y de 14 en la DLQ; *redrive* permitido solo desde su propia cola |
 | Cifrado | SSE-SQS en todas las colas; DynamoDB siempre cifra en reposo |
-| Parámetros por entorno | `point_in_time_recovery` y `deletion_protection` son variables de los módulos: apagadas en local, encendidas en un entorno productivo |
+| Parámetros por entorno | `point_in_time_recovery`, `deletion_protection` y el *throughput* máximo bajo demanda son variables de los módulos: apagadas en local, encendidas en `envs/prod` |
 | *Tags* por defecto | `project`, `env` y `managed-by` en todos los recursos |
-| Estado persistente | El estado vive en un volumen de Docker y se reconcilia en cada ejecución, así que reiniciar cualquier servicio es seguro |
+| Estado | En local, un volumen de Docker que se reconcilia en cada ejecución; en AWS, un *bucket* S3 versionado y cifrado con bloqueo nativo (`use_lockfile`) |
+| Verificaciones | `./gradlew terraformValidate` (formato y validación de todos los stacks) y `./gradlew terraformScan` (Checkov), igual que el CI |
 
 ## 15. Limitaciones conocidas
 
@@ -919,42 +1312,193 @@ Organizada según el [OWASP Top 10 (2021)](https://owasp.org/Top10/).
 
 ### 15.4 Alcance
 
-- Solo existe el entorno local; la arquitectura en AWS es una propuesta documentada, no desplegada (ADR 0012).
+- Solo se ejecuta el entorno local. El entorno de AWS es Terraform listo para aplicar (`envs/prod`), validado y escaneado en el CI pero no desplegado, así que todavía no se ha probado contra AWS real (§16).
 - No hay listado de eventos (`GET /events`) ni cancelación de órdenes.
 - Crear un evento no es idempotente: reintentar `POST /events` crea otro evento.
 - El contrato de la API lo genera springdoc y se publica en Swagger UI; no hay un archivo OpenAPI escrito a mano.
 
-## 16. Qué cambiaría en producción
+## 16. Producción en AWS
 
-| Área | Hoy en local | Propuesta productiva |
+El entorno productivo está escrito en Terraform (`infra/terraform/envs/prod`), se valida y se escanea en cada *pull request* y está listo para `terraform apply`. No queda encendido, para no generar un costo permanente; esta sección explica cómo se despliega, cuánto cuesta y por qué se tomó cada decisión.
+
+Está diseñado para un **presupuesto pequeño con un techo de costo por construcción**: un evaluador, unos cientos de peticiones al día, y límites duros sobre lo que un abuso puede hacer consumir al *backend* ([§16.3](#163-seguridad-y-la-factura) explica el riesgo que queda). La [§16.7](#167-a-escala-qué-cambiaría) describe cómo evoluciona cuando llega tráfico real.
+
+### 16.1 Arquitectura
+
+```text
+Cliente ──HTTPS──> API Gateway HTTP API ──VPC link──> AWS Cloud Map (SRV) ──> Servicio ECS Fargate (ARM64)
+                   · JWT de Cognito                                            · 1 tarea (autoscaling hasta 2)
+                   · throttling (10 rps, ráfaga 20)                            · subredes públicas, sin NAT Gateway
+                   · X-Customer-Id = "sub" del token                           · security group: solo el VPC link
+                                                                                      │
+                        ┌──────────────────────────────┬──────────────────────────────┼──────────────────────┐
+                        ▼                              ▼                              ▼                      ▼
+               DynamoDB (bajo demanda,         SQS reservations + DLQ         CloudWatch Logs + alarmas  SSM Parameter Store
+               throughput máximo, PITR,        (SSE-SQS)                      → correo por SNS           (clave de administración)
+               gateway endpoint)
+```
+
+```mermaid
+flowchart LR
+    client(["Cliente"])
+    cognito["Amazon Cognito<br/>user pool, sin registro público"]
+    subgraph aws["Cuenta de AWS, us-east-1"]
+        apigw["API Gateway HTTP API<br/>authorizer JWT, throttling<br/>X-Customer-Id = sub del token"]
+        subgraph vpc["VPC, 2 zonas de disponibilidad"]
+            link["VPC link"]
+            map["AWS Cloud Map<br/>registros SRV"]
+            ecs["ECS Fargate ARM64<br/>1 a 2 tareas, subredes públicas<br/>security group: solo el VPC link"]
+        end
+        ddb[("DynamoDB<br/>por un gateway endpoint")]
+        sqs[["SQS reservations<br/>y su DLQ"]]
+        ssm["SSM Parameter Store<br/>clave de administración"]
+        cw["CloudWatch<br/>logs y alarmas"]
+        sns["SNS<br/>alertas por correo"]
+    end
+    client -->|"inicia sesión"| cognito
+    client -->|"HTTPS con el access token"| apigw
+    apigw -.->|"valida el token"| cognito
+    apigw --> link
+    map -.->|"IP y puerto de las tareas sanas"| link
+    link --> ecs
+    ecs --> ddb
+    ecs --> sqs
+    ecs --> cw
+    ssm -.->|"secreto inyectado al arrancar"| ecs
+    cw --> sns
+```
+
+```text
+infra/terraform/
+├── bootstrap/        # una vez por cuenta: bucket del estado, registro ECR, rol de release con GitHub OIDC, presupuesto mensual
+├── envs/local/       # LocalStack
+├── envs/prod/        # AWS: compone todos los módulos de abajo
+└── modules/
+    ├── data/         # tablas DynamoDB (compartido con local)
+    ├── messaging/    # colas SQS y DLQ (compartido con local)
+    ├── network/      # VPC, 2 subredes públicas, gateway endpoint de DynamoDB, security groups encadenados
+    ├── compute/      # clúster ECS, task definition, servicio, autoscaling, roles IAM, Cloud Map
+    ├── auth/         # user pool de Cognito sin registro público
+    ├── edge/         # HTTP API, VPC link, authorizer JWT, throttling, logs de acceso
+    └── observability/# topic SNS y alarmas de CloudWatch
+```
+
+### 16.2 Decisiones y *trade-offs*
+
+| Decisión | Por qué | *Trade-off* |
 |---|---|---|
-| Entrada | Puerto 8080, HTTP plano | CloudFront (TLS) + AWS WAF delante de un Application Load Balancer interno, sin IP pública |
-| Cómputo | Un contenedor con todos los roles | ECS Fargate (ARM64) en subredes privadas; API y *workers* como servicios separados, escalados por peticiones y por profundidad de la cola |
-| Identidad | `X-Customer-Id` declarado | Cognito + JWT validado por Spring Security, grupo `admin` |
-| Secretos | Variables de entorno con valores ficticios | Roles IAM de tarea (sin llaves estáticas); Secrets Manager para la clave del proveedor de pagos |
-| Datos | DynamoDB en LocalStack | DynamoDB bajo demanda con *point-in-time recovery* y protección contra borrado; IAM de mínimo privilegio por tabla y cola |
-| Mensajería | Escritura doble | *Transactional outbox* con DynamoDB Streams |
-| Tiempo real | *Polling* cada segundo | DynamoDB Streams alimentando la fuente del SSE |
-| Observabilidad | Endpoint de Prometheus | Logs JSON y métricas en CloudWatch, alarmas, AWS Budgets, trazas con X-Ray |
-| Infraestructura | `envs/local` | `envs/prod` reutilizando los módulos, más los módulos `network`, `compute`, `edge`, `auth` y `observability`; estado remoto en S3 con bloqueo |
-| Entrega | Manual | *Pipeline* de CD: construir, escanear y subir la imagen a ECR, `terraform plan` en los *pull requests*, despliegue con los *tags* de versión |
+| **API Gateway HTTP API como única entrada**, sin balanceador | Sin costo fijo (se paga por petición); HTTPS en el *endpoint* por defecto con certificado de AWS, validación de JWT y *throttling* incluidos | [AWS WAF no protege HTTP APIs](https://docs.aws.amazon.com/waf/latest/developerguide/waf-chapter.html) (solo REST APIs, CloudFront y ALB). El [*timeout* máximo de integración es de 30 s](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-quotas.html), así que el *stream* SSE se corta cada 30 s y `EventSource` se reconecta solo |
+| **VPC link + AWS Cloud Map en lugar de un ALB** | API Gateway llega directo a las tareas privadas; ECS registra [registros SRV](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-private.html) (IP y puerto), y solo reciben tráfico las tareas cuyo *health check* pasa. Ahorra un balanceador (unos USD 16–20 al mes) | Sin *health checks* ni *connection draining* de un balanceador; los cubren el *health check* del contenedor y el apagado ordenado (ADR 0021) |
+| **Subredes públicas sin NAT Gateway** | Un NAT Gateway cuesta [USD 0,045 por hora más los datos](https://aws.amazon.com/vpc/pricing/) (unos USD 33 al mes), más que todo el resto del entorno. DynamoDB va por un [*gateway endpoint*, que no tiene cargo](https://aws.amazon.com/vpc/pricing/) | La tarea tiene una IP pública ([USD 0,005 por hora](https://aws.amazon.com/vpc/pricing/)) para llegar a ECR, SQS y CloudWatch. Su *security group* solo acepta tráfico del VPC link, así que nadie en internet puede abrirle una conexión. A escala: subredes privadas (§16.7) |
+| **Cognito + *authorizer* JWT, identidad tomada del token** | API Gateway valida el [*access token*](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-jwt-authorizer.html) y [sobrescribe `X-Customer-Id`](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-parameter-mapping.html) con su *claim* `sub`. La aplicación no cambia, y en AWS desaparece el riesgo de suplantación de la identidad declarada (ADR 0017). La ruta exige el *scope* `aws.cognito.signin.user.admin`, que [solo traen los *access tokens*](https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-the-access-token.html), como recomienda API Gateway | La aplicación confía en el encabezado, así que solo debe ser alcanzable a través del *gateway*: lo garantiza el *security group*. Sin registro público: los usuarios los crea un administrador. [Gratis hasta 10.000 usuarios activos al mes](https://aws.amazon.com/cognito/pricing/) |
+| **Fargate ARM64, 0,25 vCPU y 1 GB, una tarea** | Graviton es [cerca de un 20 % más barato que x86](https://aws.amazon.com/fargate/pricing/) y la imagen ya se construye para ARM64 en Apple silicon. *Autoscaling* por CPU, con máximo 2 tareas como techo de costo | La JVM arranca lento (`startPeriod` de 120 s en el *health check*); sin margen para carga real |
+| **DynamoDB bajo demanda con [*throughput* máximo](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/on-demand-capacity-mode-max-throughput.html)**, PITR y protección contra borrado | Se paga por petición, con un techo: las peticiones por encima de 100 lecturas o 50 escrituras por segundo por tabla se limitan en lugar de cobrarse. Los mismos módulos que en local, con respaldos y protección contra borrado | El techo se aplica en la medida de lo posible (*best effort*). `deletion_protection` (tablas y *user pool*) hay que ponerlo en `false` a propósito antes de `terraform destroy` |
+| **Secretos fuera de Terraform** | La clave de administración es un parámetro SecureString creado con la AWS CLI; ECS [lo inyecta al arrancar la tarea](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/secrets-envvar-ssm-paramstore.html). Los usuarios y sus contraseñas también se crean con la CLI. Ningún secreto llega al código ni al estado de Terraform | Dos pasos manuales antes del primer despliegue. Los parámetros estándar de Parameter Store no tienen cargo |
+| **IAM de mínimo privilegio** | El rol de la tarea solo permite las llamadas que hace el código (`GetItem`, `PutItem`, `UpdateItem`, `Query`; `SendMessage`, `ReceiveMessage`, `DeleteMessage`) sobre sus propias tablas y cola. Una [transacción solo necesita los permisos de sus ítems](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html), así que no hay `DeleteItem` ni `Scan`. El rol de ejecución solo lee su propio parámetro | Cualquier operación nueva en el código exige cambiar la política |
+| **Contenedor endurecido** | Usuario sin privilegios, sistema de archivos raíz de solo lectura con `/tmp` como única ruta escribible (probado en local contra LocalStack), *tags* de imagen inmutables y escaneo de cada imagen al subirla | — |
+| **Estado remoto en S3 con bloqueo nativo** | *Bucket* versionado, cifrado, privado y solo por TLS; bloqueo con [`use_lockfile`](https://developer.hashicorp.com/terraform/language/backend/s3), porque el bloqueo con DynamoDB está obsoleto | El stack `bootstrap` tiene estado local: crea el *bucket* que lo guardaría |
+| **Aislamiento de entornos** | `local` y `prod` usan los mismos módulos `data` y `messaging` con su propio estado, prefijo de nombres y *tags* | Una sola cuenta de AWS para todo. En producción: una cuenta por entorno con AWS Organizations |
 
-Una estimación aproximada del perfil ligero es de unos **USD 85 al mes** en `us-east-1`, más de la mitad en costo fijo de red (NAT Gateway y balanceador); DynamoDB y SQS cuestan casi nada con poco tráfico. Es una cifra aproximada, que habría que validar con la [AWS Pricing Calculator](https://calculator.aws/):
+### 16.3 Seguridad y la factura
 
-| Recurso | USD al mes, aprox. |
+Una API pública se puede abusar para inflar la factura. Los controles van en capas, desde los límites duros hasta la detección:
+
+| Capa | Control | Efecto |
+|---|---|---|
+| Entrada | *Throttling* de 10 peticiones por segundo (ráfaga 20) en el *stage*; JWT obligatorio en todas las rutas; solo se publica `/api/*` (el *actuator* queda privado) | Acota lo que llega a las tareas y a DynamoDB. API Gateway aplica el *throttling* [en la medida de lo posible](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-throttling.html) |
+| *Backend* | Máximo 2 tareas; *throughput* máximo por tabla en DynamoDB | El *backend* no puede crecer, así que rechaza en lugar de cobrar |
+| Detección | Alarma sobre el conteo de peticiones de la API (más de 2.000 en 5 minutos), más 5xx, mensajes en la DLQ, edad de la cola y CPU, enviadas por correo | Minutos, no horas |
+| Última línea | Presupuesto mensual con alertas al 50, 80 y 100 % y una alerta por pronóstico | Budgets se actualiza unas pocas veces al día: es un respaldo |
+| Respuesta | *Kill switch* por variables: `desired_count=0` detiene todas las tareas; `throttling_rate_limit=0` y `throttling_burst_limit=0` deberían rechazar todas las peticiones en el *gateway* (la [referencia de la API](https://docs.aws.amazon.com/apigatewayv2/latest/api-reference/apis-apiid-stages.html) no documenta un mínimo, así que hay que confirmarlo en el primer despliegue) | Reversible con un `terraform apply` |
+
+**Riesgo residual, dicho con honestidad:** la [página de precios de API Gateway](https://aws.amazon.com/api-gateway/pricing/) no dice si se cobran las peticiones rechazadas por el *authorizer* o por el *throttling*. Un ataque volumétrico podría entonces seguir costando dinero en la entrada, a cerca de USD 1 por millón de peticiones. La alarma de conteo y el *kill switch* limitan cuánto dura. Shield Advanced agregaría protección de costos, pero está muy por fuera de este presupuesto.
+
+### 16.4 Costo
+
+Precios de `us-east-1`, revisados en las páginas oficiales de precios; hay que confirmarlos con la [AWS Pricing Calculator](https://calculator.aws/) antes de desplegar:
+
+| Recurso | Costo mensual, encendido 24/7 | Fuente |
+|---|---|---|
+| Fargate ARM64, 0,25 vCPU y 1 GB | USD 8,51 | [Precios de Fargate](https://aws.amazon.com/fargate/pricing/): USD 0,03238 por vCPU-hora, 0,00356 por GB-hora |
+| IPv4 pública de la tarea | USD 3,65 | [Precios de VPC](https://aws.amazon.com/vpc/pricing/): USD 0,005 por hora |
+| Zona privada de Route 53 (Cloud Map) y la tarea registrada | USD 0,60 | [Route 53](https://aws.amazon.com/route53/pricing/): USD 0,50; [Cloud Map](https://aws.amazon.com/cloud-map/pricing/): USD 0,10 |
+| API Gateway, DynamoDB, SQS, Cognito, CloudWatch, ECR, S3 | Cerca de USD 1 con el tráfico de una evaluación | Pago por uso; las 5 alarmas están dentro de las 10 gratuitas; Cognito es gratis hasta 10.000 usuarios |
+| **Total** | **Cerca de USD 14 al mes** | Con `desired_count=0`, cerca de USD 1,60 |
+
+El diseño a escala de la §16.7 cuesta cerca de USD 85 al mes: más de la mitad es costo fijo de red (NAT Gateway y balanceador). El diseño ajustado cambia WAF y las subredes privadas por una sexta parte de ese costo, y documenta el riesgo que queda.
+
+### 16.5 Release, deploy, operate y monitor
+
+**Release.** El *workflow* de *release* (§13) publica cada versión en GitHub Packages para amd64 y arm64. Un despliegue en AWS copiaría esa imagen a ECR con un *tag* de versión inmutable: el stack `bootstrap` ya crea el rol para eso, que usa [OIDC en lugar de llaves de larga duración](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws). Solo el entorno `release` de este repositorio puede asumirlo, y solo puede subir imágenes; cambiar la infraestructura sigue siendo un `terraform apply` revisado. Ese paso de CD no está implementado, porque nada corre en AWS.
+
+**Deploy** (una vez por cuenta, y después un *apply* por versión):
+
+```bash
+# 1. Guardrails de la cuenta: bucket del estado, registro, rol de release, presupuesto (estado local)
+cd infra/terraform/bootstrap
+terraform init && terraform apply -var alert_email=tu@correo.com
+
+# 2. Clave de administración: se crea fuera de Terraform, así nunca llega al estado
+aws ssm put-parameter --name /prod-ticketing/admin-api-key --type SecureString --value "$(openssl rand -hex 32)"
+
+# 3. Release: construir para ARM64 y subir un tag inmutable
+aws ecr get-login-password | docker login --username AWS --password-stdin <ecr_repository_url>
+docker buildx build --platform linux/arm64 -f deployment/Dockerfile -t <ecr_repository_url>:1.0.0 --push .
+
+# 4. Entorno: estado remoto con el output del bootstrap, y después apply
+cd ../envs/prod
+cp backend.hcl.example backend.hcl   # poner el output state_bucket
+terraform init -backend-config=backend.hcl
+terraform apply -var container_image=<ecr_repository_url>:1.0.0 -var alert_email=tu@correo.com
+
+# 5. El usuario del evaluador, creado por un administrador
+aws cognito-idp admin-create-user --user-pool-id <user_pool_id> --username evaluator --message-action SUPPRESS
+aws cognito-idp admin-set-user-password --user-pool-id <user_pool_id> --username evaluator --password '<contraseña>' --permanent
+```
+
+Cada versión nueva es un `terraform apply -var container_image=<url>:<versión>`. ECS arranca la tarea nueva junto a la anterior, y el [*deployment circuit breaker*](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/deployment-circuit-breaker.html) revierte solo si la versión nueva nunca queda sana.
+
+**Usar la API:**
+
+```bash
+TOKEN=$(aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH --client-id <client_id> \
+  --auth-parameters USERNAME=evaluator,PASSWORD='<contraseña>' --query AuthenticationResult.AccessToken --output text)
+curl -H "Authorization: Bearer $TOKEN" <api_endpoint>/api/v1/events/<id>/availability
+```
+
+**Operate (*runbook*):**
+
+| Situación | Acción |
 |---|---|
-| NAT Gateway y su IPv4 pública | 38 |
-| Application Load Balancer interno | 20 |
-| ECS Fargate ARM64 (1 tarea, 0,5 vCPU, 1 GB) | 15 |
-| AWS WAF (*web ACL* y 3 reglas) | 8 |
-| CloudWatch (14 días de logs, alarmas) | 3 |
-| CloudFront, DynamoDB bajo demanda, SQS, Cognito, ECR | 1 |
-| **Total** | **85** |
+| Detener la aplicación y conservar los datos | `terraform apply -var desired_count=0` (se vuelve a encender con `1`) |
+| Sospecha de abuso | `terraform apply -var throttling_rate_limit=0 -var throttling_burst_limit=0`: todas las peticiones se rechazan en el *gateway* |
+| Rotar la clave de administración | `aws ssm put-parameter --overwrite ...` y después `aws ecs update-service --force-new-deployment` (ECS lee los secretos al arrancar la tarea) |
+| Mensajes en la DLQ | Revisarlos, corregir la causa y devolverlos con el *redrive* de SQS (permitido solo hacia su propia cola) |
+| Eliminar todo | `terraform apply -var deletion_protection=false` y después `terraform destroy` |
 
-Subredes públicas sin NAT Gateway ahorrarían unos USD 38, pero darían IP públicas a las tareas; se descarta por seguridad.
+**Monitor.** Logs de la aplicación y logs de acceso de la API en CloudWatch (14 días; los de acceso en JSON, con el ID de la petición, el estado, la latencia y el error del *authorizer*), y cinco alarmas por correo: conteo de peticiones, 5xx, mensajes en la DLQ, edad del mensaje más viejo y CPU. Container Insights queda apagado: agrega métricas personalizadas con costo, y las alarmas usan las métricas gratuitas de `AWS/ECS`.
 
-<!-- diagrama: propuesta de producción en AWS (flujo) -->
-<!-- diagrama: hueco de la escritura doble hoy frente al transactional outbox (flujo o secuencia) -->
+### 16.6 Análisis estático
+
+[Checkov](https://www.checkov.io/) escanea el código de Terraform en el CI (`./gradlew terraformScan` en local), con la imagen fijada por *digest*. Resultado: **125 controles aprobados, 0 fallidos y 19 omitidos**. Cada control omitido está escrito dentro de su recurso con la razón, así que un hallazgo nuevo rompe el *build*:
+
+- **Llaves KMS propias** (DynamoDB, CloudWatch Logs, S3, ECR): todos los servicios ya cifran en reposo con llaves de AWS; una llave propia cuesta y solo hace falta por cumplimiento normativo.
+- **Retención, Container Insights, *flow logs*, logs de acceso y réplica del *bucket* del estado:** extras con costo, sin un requisito a esta escala.
+- **IP pública de las tareas y *topic* SNS sin cifrar:** las decisiones de la §16.2; las alarmas de CloudWatch [no pueden publicar en un *topic* cifrado con la llave administrada por AWS](https://repost.aws/knowledge-center/cloudwatch-configure-alarm-sns).
+- ***Security groups* "sin asociar":** falso positivo; se asocian en otros módulos.
+
+### 16.7 A escala: qué cambiaría
+
+| Área | Diseño ajustado (implementado) | Con tráfico real |
+|---|---|---|
+| Entrada | HTTP API con *throttling* | CloudFront + AWS WAF (reglas administradas, límites por IP) delante de un Application Load Balancer, o una REST API de API Gateway con WAF y *usage plans* |
+| Red | Subredes públicas, sin NAT | Subredes privadas con NAT Gateway o *interface endpoints*; tareas sin IP pública |
+| Cómputo | Un servicio con todos los roles | API y *workers* como servicios separados, escalados por peticiones y por profundidad de la cola |
+| Cuentas | Una cuenta | AWS Organizations: una cuenta por entorno, con *service control policies* |
+| Entrega | *Apply* manual | GitHub Actions con OIDC: `terraform plan` en los *pull requests*, *apply* con aprobación, *release* con los *tags* de versión |
+| Observabilidad | Logs y alarmas | Logs JSON con `correlationId`, métricas de negocio, trazas con X-Ray, *dashboards* |
+| Datos y mensajería | Escritura doble | *Transactional outbox* y SSE alimentado por DynamoDB Streams |
+| Identidad | Un usuario, validación en el *gateway* | Grupos (`admin`) verificados por la aplicación con Spring Security |
 
 ## 17. Hoja de ruta
 
@@ -966,7 +1510,7 @@ En orden de prioridad:
 4. Reencolado de las órdenes `QUEUED` antiguas y, después, un *transactional outbox*.
 5. Spring Security con JWT (Cognito) y un rol `admin`.
 6. Atributo `version` en las condiciones, además del estado.
-7. Terraform de la propuesta AWS (`envs/prod`, red, cómputo, IAM, observabilidad).
+7. *Pipeline* de CD para AWS: subir la imagen del *release* a ECR con el rol OIDC de `bootstrap`, `terraform plan` en los *pull requests* y *apply* con aprobación.
 8. PIT en el CI con un umbral de mutación; escaneo de dependencias.
 9. *Tags* de versión y un *changelog* por cada *release*.
 
@@ -987,7 +1531,7 @@ En orden de prioridad:
 │   │   ├── sqs-listener/          # Consumidor SQS reactivo con apagado ordenado
 │   │   └── scheduler/             # Tarea de vencimientos
 │   └── helpers/metrics/           # Métricas del SDK de AWS en Micrometer
-├── infra/terraform/               # Infraestructura como código (entorno local y módulos)
+├── infra/terraform/               # Infraestructura como código: bootstrap, envs/local, envs/prod y sus módulos
 ├── deployment/Dockerfile          # Imagen multi-stage, usuario sin privilegios
 ├── postman/                       # Colección de Postman con aserciones
 ├── .github/workflows/ci.yml       # Integración continua
@@ -1013,6 +1557,15 @@ Construido por **Mateo** ([@whymvm](https://github.com/whymvm)).
 - Amazon DynamoDB: [expresiones de condición](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.ConditionExpressions.html), [transacciones](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis.html), [consistencia de lectura](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadConsistency.html), [diseño de la clave de partición](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-partition-key-design.html), [índices dispersos](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-indexes-general-sparse-indexes.html), [TTL](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/TTL.html), [Streams](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Streams.html).
 - Amazon SQS: [colas estándar](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/standard-queues.html), [*visibility timeout*](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html), [*long polling*](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-short-and-long-polling.html), [colas de mensajes fallidos](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html).
 - AWS Architecture Blog, [Exponential Backoff And Jitter](https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/).
+- Amazon API Gateway (HTTP APIs): [integraciones privadas](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-private.html), [*authorizers* JWT](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-jwt-authorizer.html), [*parameter mapping*](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-parameter-mapping.html), [*throttling*](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-throttling.html), [cuotas](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-quotas.html), [precios](https://aws.amazon.com/api-gateway/pricing/).
+- Amazon ECS: [*deployment circuit breaker*](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/deployment-circuit-breaker.html), [*service discovery*](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/service-discovery.html), [rol de ejecución de tareas](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_execution_IAM_role.html), [secretos desde Parameter Store](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/secrets-envvar-ssm-paramstore.html), [parámetros de la *task definition*](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters.html); [precios de Fargate](https://aws.amazon.com/fargate/pricing/).
+- Amazon Cognito: [*access tokens*](https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-the-access-token.html), [precios](https://aws.amazon.com/cognito/pricing/).
+- DynamoDB: [*throughput* máximo en tablas bajo demanda](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/on-demand-capacity-mode-max-throughput.html) e [IAM para transacciones](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html); [precios de VPC](https://aws.amazon.com/vpc/pricing/); [precios de Route 53](https://aws.amazon.com/route53/pricing/); [precios de AWS Cloud Map](https://aws.amazon.com/cloud-map/pricing/); [recursos que protege AWS WAF](https://docs.aws.amazon.com/waf/latest/developerguide/waf-chapter.html); AWS re:Post, [alarma de CloudWatch con un *topic* SNS cifrado](https://repost.aws/knowledge-center/cloudwatch-configure-alarm-sns).
+
+**Terraform y cadena de suministro**
+- HashiCorp, [*backend* S3 y `use_lockfile`](https://developer.hashicorp.com/terraform/language/backend/s3); [*provider* de AWS](https://registry.terraform.io/providers/hashicorp/aws/latest/docs).
+- GitHub, [OpenID Connect en AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws).
+- [Checkov](https://www.checkov.io/), análisis estático de infraestructura como código.
 
 **Estándares y seguridad**
 - [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) (semántica HTTP), [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) (*problem details*), borradores de la IETF de los encabezados [`Idempotency-Key`](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/) y [`RateLimit`](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/), [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html).

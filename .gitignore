@@ -345,3 +345,4 @@ docs/
 crash.log
 *.tfvars
 !*.tfvars.example
+backend.hcl
