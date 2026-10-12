@@ -1,58 +1,44 @@
 package co.com.ticketing.sqs.listener.config;
 
-import org.junit.jupiter.api.BeforeEach;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
-import org.mockito.InjectMocks;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import software.amazon.awssdk.metrics.LoggingMetricPublisher;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 
+@ExtendWith(MockitoExtension.class)
 class SQSConfigTest {
 
-    @InjectMocks
-    private SQSConfig sqsConfig;
+    private final SQSConfig config = new SQSConfig();
 
     @Mock
-    private SqsAsyncClient sqsAsyncClient;
+    private SqsAsyncClient client;
 
-    @Mock
-    private SQSProperties sqsProperties;
+    @Test
+    void sqsListenerIsLeftForSpringToStart() {
+        var listener = config.sqsListener(client, properties(null), message -> Mono.empty(),
+                new SimpleMeterRegistry());
 
-    @BeforeEach
-    void init() {
-        MockitoAnnotations.openMocks(this);
-        when(sqsProperties.region()).thenReturn("us-east-1");
-        when(sqsProperties.queueUrl()).thenReturn("http://localhost:4566/00000000000/queue-sqs");
-        when(sqsProperties.waitTimeSeconds()).thenReturn(20);
-        when(sqsProperties.maxNumberOfMessages()).thenReturn(10);
-        when(sqsProperties.numberOfThreads()).thenReturn(1);
+        assertThat(listener.isRunning()).isFalse();
+        verifyNoInteractions(client);
     }
 
     @Test
-    void configSQSListenerIsNotNull() {
-        assertThat(sqsConfig.sqsListener(sqsAsyncClient, sqsProperties, message -> Mono.empty())).isNotNull();
+    void sqsListenerClientWorksWithAndWithoutAnEndpoint() {
+        var publisher = LoggingMetricPublisher.create();
+
+        assertThat(config.sqsListenerClient(properties("http://localhost:4566"), publisher)).isNotNull();
+        assertThat(config.sqsListenerClient(properties(" "), publisher)).isNotNull();
+        assertThat(config.sqsListenerClient(properties(null), publisher)).isNotNull();
     }
 
-    @Test
-    void configSqsIsNotNull() {
-        var loggingMetricPublisher = LoggingMetricPublisher.create();
-        assertThat(sqsConfig.configSqs(sqsProperties, loggingMetricPublisher)).isNotNull();
-    }
-
-    @Test
-    void configSqsWhenEndpointIsNotNull() {
-        var loggingMetricPublisher = LoggingMetricPublisher.create();
-        when(sqsProperties.endpoint()).thenReturn("http://localhost:4566");
-        assertThat(sqsConfig.configSqs(sqsProperties, loggingMetricPublisher)).isNotNull();
-    }
-
-    @Test
-    void resolveEndpointIsNull() {
-        assertThat(sqsConfig.resolveEndpoint(sqsProperties)).isNull();
+    private static SQSProperties properties(String endpoint) {
+        return new SQSProperties("us-east-1", endpoint, "http://localhost:4566/000000000000/queue", 20, 10, 1);
     }
 }

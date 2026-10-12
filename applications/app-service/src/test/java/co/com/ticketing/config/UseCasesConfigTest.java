@@ -23,7 +23,7 @@ class UseCasesConfigTest {
             }
 
             assertTrue(useCaseBeanFound, "No beans ending with 'Use Case' were found");
-        } catch (org.springframework.beans.factory.UnsatisfiedDependencyException e) {
+        } catch (org.springframework.beans.factory.UnsatisfiedDependencyException _) {
             assertTrue(true, "Unsatisfied dependencies are expected for UseCases resolving gateways");
         }
     }

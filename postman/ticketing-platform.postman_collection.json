@@ -1,0 +1,4923 @@
+{
+  "info": {
+    "name": "Ticketing Platform",
+    "description": "Basic requests for the Ticketing Platform API.\n\nStart the local stack with `docker compose up --build -d` and run the collection. Dates are generated relative to the current date, so the requests never expire.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Generates dates relative to now so the collection never expires",
+          "const DAY = 24 * 60 * 60 * 1000;",
+          "const HOURS_3 = 3 * 60 * 60 * 1000;",
+          "const future = Date.now() + 30 * DAY;",
+          "const past = Date.now() - 30 * DAY;",
+          "pm.collectionVariables.set('startsAt', new Date(future).toISOString());",
+          "pm.collectionVariables.set('finishesAt', new Date(future + HOURS_3).toISOString());",
+          "pm.collectionVariables.set('pastStartsAt', new Date(past).toISOString());",
+          "pm.collectionVariables.set('pastFinishesAt', new Date(past + HOURS_3).toISOString());"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Readiness",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('reports UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health/readiness",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health",
+                "readiness"
+              ]
+            },
+            "description": "Checks that the application is ready to receive traffic."
+          },
+          "response": [
+            {
+              "name": "Readiness",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/actuator/health/readiness",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "actuator",
+                    "health",
+                    "readiness"
+                  ]
+                },
+                "description": "Checks that the application is ready to receive traffic."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/vnd.spring-boot.actuator.v3+json"
+                }
+              ],
+              "body": "{\n  \"status\": \"UP\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Events",
+      "item": [
+        {
+          "name": "Create event",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 201 Created', () => pm.response.to.have.status(201));",
+                  "const event = pm.response.json();",
+                  "pm.test('returns the created event', () => {",
+                  "    pm.expect(event.id).to.be.a('string').and.not.empty;",
+                  "    pm.expect(event.name).to.eql('Rock Concert');",
+                  "    pm.expect(event.capacity).to.eql(5000);",
+                  "    pm.expect(event.createdAt).to.be.a('string');",
+                  "});",
+                  "pm.test('starts with every ticket available', () => {",
+                  "    pm.expect(event.inventory).to.eql({ available: 5000, reserved: 0, pendingConfirmation: 0, sold: 0, complimentary: 0 });",
+                  "});",
+                  "pm.test('returns the Location of the new event', () => {",
+                  "    pm.expect(pm.response.headers.get('Location')).to.eql(`/api/v1/events/${event.id}`);",
+                  "});",
+                  "pm.collectionVariables.set('eventId', event.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events"
+              ]
+            },
+            "description": "Creates an event. Returns 201 with the Location header and the created event, whose inventory starts with every ticket available.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 5000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Create event",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "Creates an event. Returns 201 with the Location header and the created event, whose inventory starts with every ticket available.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 5000\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                },
+                {
+                  "key": "Location",
+                  "value": "/api/v1/events/6b10eaeb-6ad8-418c-b6e6-d0eb53ef06a9"
+                }
+              ],
+              "body": "{\n  \"id\": \"6b10eaeb-6ad8-418c-b6e6-d0eb53ef06a9\",\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"2026-11-09T04:16:11Z\",\n  \"finishesAt\": \"2026-11-09T07:16:11Z\",\n  \"capacity\": 5000,\n  \"inventory\": {\n    \"available\": 5000,\n    \"reserved\": 0,\n    \"pendingConfirmation\": 0,\n    \"sold\": 0,\n    \"complimentary\": 0\n  },\n  \"createdAt\": \"2026-10-10T04:16:11.386434011Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve event",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200 OK', () => pm.response.to.have.status(200));",
+                  "const event = pm.response.json();",
+                  "pm.test('returns the requested event', () => {",
+                  "    pm.expect(event.id).to.eql(pm.collectionVariables.get('eventId'));",
+                  "    pm.expect(event.name).to.eql('Rock Concert');",
+                  "    pm.expect(event.capacity).to.eql(5000);",
+                  "});",
+                  "pm.test('returns its inventory', () => {",
+                  "    pm.expect(event.inventory).to.eql({ available: 5000, reserved: 0, pendingConfirmation: 0, sold: 0, complimentary: 0 });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{eventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{eventId}}"
+              ]
+            },
+            "description": "Retrieves an event by its id. Run \"Create event\" first: it stores the id in {{eventId}}."
+          },
+          "response": [
+            {
+              "name": "Retrieve event",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{eventId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{eventId}}"
+                  ]
+                },
+                "description": "Retrieves an event by its id. Run \"Create event\" first: it stores the id in {{eventId}}."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"55793d16-5edf-4d3b-95fe-41e432bde47b\",\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"2026-12-05T01:00:00Z\",\n  \"finishesAt\": \"2026-12-05T04:00:00Z\",\n  \"capacity\": 5000,\n  \"inventory\": {\n    \"available\": 5000,\n    \"reserved\": 0,\n    \"pendingConfirmation\": 0,\n    \"sold\": 0,\n    \"complimentary\": 0\n  },\n  \"createdAt\": \"2026-10-10T21:00:05.815356710Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve event - not found",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('returns a problem detail', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "});",
+                  "pm.test('returns code EVENT_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('EVENT_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/00000000-0000-0000-0000-000000000000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "00000000-0000-0000-0000-000000000000"
+              ]
+            },
+            "description": "Requests an id that does not exist."
+          },
+          "response": [
+            {
+              "name": "Retrieve event - not found",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/00000000-0000-0000-0000-000000000000",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "00000000-0000-0000-0000-000000000000"
+                  ]
+                },
+                "description": "Requests an id that does not exist."
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"no event found with id 00000000-0000-0000-0000-000000000000\",\n  \"instance\": \"/api/v1/events/00000000-0000-0000-0000-000000000000\",\n  \"status\": 404,\n  \"title\": \"Not Found\",\n  \"code\": \"EVENT_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve availability",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "const availability = pm.response.json();",
+                  "pm.test('every ticket of the new event is available', () => {",
+                  "    pm.expect(availability.eventId).to.eql(pm.collectionVariables.get('eventId'));",
+                  "    pm.expect(availability).to.include({ capacity: 5000, available: 5000, reserved: 0, pendingConfirmation: 0, sold: 0, complimentary: 0 });",
+                  "    pm.expect(availability.asOf).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{eventId}}/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{eventId}}",
+                "availability"
+              ]
+            },
+            "description": "Returns how many tickets of the event are in each state right now. For live updates, open GET /api/v1/events/{id}/availability/stream (Server-Sent Events), for example with curl -N."
+          },
+          "response": [
+            {
+              "name": "Retrieve availability",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{eventId}}/availability",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{eventId}}",
+                    "availability"
+                  ]
+                },
+                "description": "Returns how many tickets of the event are in each state right now. For live updates, open GET /api/v1/events/{id}/availability/stream (Server-Sent Events), for example with curl -N."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"capacity\": 5000,\n  \"available\": 5000,\n  \"reserved\": 0,\n  \"pendingConfirmation\": 0,\n  \"sold\": 0,\n  \"complimentary\": 0,\n  \"asOf\": \"2026-10-11T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve availability - not found",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 404', () => pm.response.to.have.status(404));",
+                  "pm.test('returns code EVENT_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('EVENT_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/00000000-0000-0000-0000-000000000000/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "00000000-0000-0000-0000-000000000000",
+                "availability"
+              ]
+            },
+            "description": "Asks for the availability of an event that does not exist."
+          },
+          "response": [
+            {
+              "name": "Retrieve availability - not found",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/00000000-0000-0000-0000-000000000000/availability",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "00000000-0000-0000-0000-000000000000",
+                    "availability"
+                  ]
+                },
+                "description": "Asks for the availability of an event that does not exist."
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"no event found with id 00000000-0000-0000-0000-000000000000\",\n  \"instance\": \"/api/v1/events/00000000-0000-0000-0000-000000000000/availability\",\n  \"status\": 404,\n  \"title\": \"Not Found\",\n  \"code\": \"EVENT_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Create event - validation errors",
+          "description": "Each request breaks one rule and checks the error code returned by the API.",
+          "item": [
+            {
+              "name": "Invalid capacity",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('returns a problem detail', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "});",
+                      "pm.test('returns code INVALID_EVENT_CAPACITY', () => pm.expect(pm.response.json().code).to.eql('INVALID_EVENT_CAPACITY'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "Capacity must be greater than zero.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 0\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [
+                {
+                  "name": "Invalid capacity",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "Capacity must be greater than zero.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 0\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"capacity must be greater than zero but was 0\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"INVALID_EVENT_CAPACITY\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Starts in the past",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('returns a problem detail', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "});",
+                      "pm.test('returns code EVENT_STARTS_IN_THE_PAST', () => pm.expect(pm.response.json().code).to.eql('EVENT_STARTS_IN_THE_PAST'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "A new event cannot start in the past.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{pastStartsAt}}\",\n  \"finishesAt\": \"{{pastFinishesAt}}\",\n  \"capacity\": 5000\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [
+                {
+                  "name": "Starts in the past",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "A new event cannot start in the past.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{pastStartsAt}}\",\n  \"finishesAt\": \"{{pastFinishesAt}}\",\n  \"capacity\": 5000\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"startsAt must be in the future but was 2026-09-10T04:16:11Z\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"EVENT_STARTS_IN_THE_PAST\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Finishes before it starts",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('returns a problem detail', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "});",
+                      "pm.test('returns code INVALID_EVENT_SCHEDULE', () => pm.expect(pm.response.json().code).to.eql('INVALID_EVENT_SCHEDULE'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "finishesAt must be after startsAt.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{finishesAt}}\",\n  \"finishesAt\": \"{{startsAt}}\",\n  \"capacity\": 5000\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [
+                {
+                  "name": "Finishes before it starts",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "finishesAt must be after startsAt.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{finishesAt}}\",\n  \"finishesAt\": \"{{startsAt}}\",\n  \"capacity\": 5000\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"startsAt and finishesAt are required and finishesAt must be after startsAt\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"INVALID_EVENT_SCHEDULE\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Blank name",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('returns a problem detail', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "});",
+                      "pm.test('returns code INVALID_EVENT_NAME', () => pm.expect(pm.response.json().code).to.eql('INVALID_EVENT_NAME'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "The name is required.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 5000\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [
+                {
+                  "name": "Blank name",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "The name is required.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 5000\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"name must not be blank and must have at most 200 characters\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"INVALID_EVENT_NAME\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Blank venue",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('returns a problem detail', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "});",
+                      "pm.test('returns code INVALID_EVENT_VENUE', () => pm.expect(pm.response.json().code).to.eql('INVALID_EVENT_VENUE'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "The venue is required.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \" \",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 5000\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [
+                {
+                  "name": "Blank venue",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "The venue is required.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"Rock Concert\",\n  \"venue\": \" \",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 5000\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"venue must not be blank and must have at most 200 characters\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"INVALID_EVENT_VENUE\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Missing body",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('returns a problem detail', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "});",
+                      "pm.test('returns code MISSING_REQUEST_BODY', () => pm.expect(pm.response.json().code).to.eql('MISSING_REQUEST_BODY'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "The request has no body."
+              },
+              "response": [
+                {
+                  "name": "Missing body",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "The request has no body."
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"Request body is required\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"MISSING_REQUEST_BODY\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Malformed JSON",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('returns a problem detail', () => {",
+                      "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                      "});",
+                      "pm.test('returns code MALFORMED_REQUEST_BODY', () => pm.expect(pm.response.json().code).to.eql('MALFORMED_REQUEST_BODY'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "The body is not valid JSON.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"name\": "
+                }
+              },
+              "response": [
+                {
+                  "name": "Malformed JSON",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "The body is not valid JSON.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{ \"name\": "
+                    }
+                  },
+                  "status": "Bad Request",
+                  "code": 400,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"Malformed request body\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"MALFORMED_REQUEST_BODY\"\n}"
+                }
+              ]
+            },
+            {
+              "name": "Unsupported media type",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('returns 415 Unsupported Media Type', () => pm.response.to.have.status(415));",
+                      "pm.test('returns code REQUEST_ERROR', () => pm.expect(pm.response.json().code).to.eql('REQUEST_ERROR'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "text/plain"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "The body is sent as plain text instead of JSON.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "plain text"
+                }
+              },
+              "response": [
+                {
+                  "name": "Unsupported media type",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "text/plain"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{baseUrl}}/api/v1/events",
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "events"
+                      ]
+                    },
+                    "description": "The body is sent as plain text instead of JSON.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "plain text"
+                    }
+                  },
+                  "status": "Unsupported Media Type",
+                  "code": 415,
+                  "_postman_previewlanguage": "json",
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/problem+json"
+                    }
+                  ],
+                  "body": "{\n  \"detail\": \"Content type 'text/plain' not supported for bodyType=co.com.ticketing.model.event.NewEvent\",\n  \"instance\": \"/api/v1/events\",\n  \"status\": 415,\n  \"title\": \"Unsupported Media Type\",\n  \"code\": \"REQUEST_ERROR\"\n}"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "Place order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 202 Accepted', () => pm.response.to.have.status(202));",
+                  "const order = pm.response.json();",
+                  "pm.test('returns the queued order', () => {",
+                  "    pm.expect(order.id).to.be.a('string').and.not.empty;",
+                  "    pm.expect(order.eventId).to.eql(pm.collectionVariables.get('eventId'));",
+                  "    pm.expect(order.customerId).to.eql(pm.collectionVariables.get('customerId'));",
+                  "    pm.expect(order.quantity).to.eql(2);",
+                  "    pm.expect(order.status).to.eql('QUEUED');",
+                  "});",
+                  "pm.test('returns the Location of the new order', () => {",
+                  "    pm.expect(pm.response.headers.get('Location')).to.eql(`/api/v1/orders/${order.id}`);",
+                  "});",
+                  "pm.collectionVariables.set('orderId', order.id);",
+                  "pm.test('is a new order, not a replayed one', () => {",
+                  "    pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('false');",
+                  "    pm.expect(pm.response.headers.get('Retry-After')).to.eql('1');",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A new Idempotency-Key for each run of the collection; the retry below sends it again",
+                  "pm.collectionVariables.set('placeOrderKey', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{placeOrderKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Places an order for the event created by \"Create event\". Returns 202: the tickets are reserved later, asynchronously.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{placeOrderKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Places an order for the event created by \"Create event\". Returns 202: the tickets are reserved later, asynchronously.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                },
+                {
+                  "key": "Location",
+                  "value": "/api/v1/orders/055d55a0-fbe3-45ac-b706-10a48c14901d"
+                }
+              ],
+              "body": "{\n  \"id\": \"055d55a0-fbe3-45ac-b706-10a48c14901d\",\n  \"eventId\": \"1b1b2e02-3c00-465c-9dcb-d11b1d38157e\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"QUEUED\",\n  \"createdAt\": \"2026-10-10T23:07:44.366634460Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Waits a moment before each attempt, so the queue consumer can process the order",
+                  "setTimeout(() => {}, 1000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// The consumer processes the order asynchronously: repeat this request while the order is still queued.",
+                  "// The consumer usually answers in well under a second; 10 attempts (about 10 s) leave room for a slow start",
+                  "const order = pm.response.json();",
+                  "const attempts = Number(pm.collectionVariables.get('pollAttempts') || 0);",
+                  "if (order.status === 'QUEUED' && attempts < 10) {",
+                  "    pm.collectionVariables.set('pollAttempts', attempts + 1);",
+                  "    postman.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset('pollAttempts');",
+                  "    pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('returns the order placed before', () => {",
+                  "        pm.expect(order.id).to.eql(pm.collectionVariables.get('orderId'));",
+                  "        pm.expect(order.customerId).to.eql(pm.collectionVariables.get('customerId'));",
+                  "    });",
+                  "    pm.test('the consumer reserved its tickets for 10 minutes', () => {",
+                  "        pm.expect(order.status).to.eql('RESERVED');",
+                  "        pm.expect(order.ticketStatus).to.eql('RESERVED');",
+                  "        const minutes = (new Date(order.expiresAt) - new Date(order.createdAt)) / 60000;",
+                  "        pm.expect(minutes).to.be.within(9.9, 10.1);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}"
+              ]
+            },
+            "description": "Returns the current state of the order created by \"Place order\". The queue consumer has already reserved its tickets for 10 minutes. Only its customer can see the order."
+          },
+          "response": [
+            {
+              "name": "Retrieve order",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}"
+                  ]
+                },
+                "description": "Returns the current state of the order created by \"Place order\". The queue consumer has already reserved its tickets for 10 minutes. Only its customer can see the order."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"RESERVED\",\n  \"expiresAt\": \"2026-10-10T12:10:00Z\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Place order - retry with the same key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 202', () => pm.response.to.have.status(202));",
+                  "pm.test('returns the same order, replayed', () => {",
+                  "    pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('orderId'));",
+                  "    pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('true');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{placeOrderKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Sends the same request again with the same Idempotency-Key, as a client does after a timeout. The API returns the same order in its current state, marked with Idempotent-Replayed, and creates nothing new.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order - retry with the same key",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{placeOrderKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Sends the same request again with the same Idempotency-Key, as a client does after a timeout. The API returns the same order in its current state, marked with Idempotent-Replayed, and creates nothing new.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"RESERVED\",\n  \"expiresAt\": \"2026-10-10T12:10:00Z\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\",\n  \"updatedAt\": \"2026-10-10T12:00:00.150Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Place order - same key, another request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 422', () => pm.response.to.have.status(422));",
+                  "pm.test('returns code IDEMPOTENCY_KEY_REUSED', () => pm.expect(pm.response.json().code).to.eql('IDEMPOTENCY_KEY_REUSED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{placeOrderKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Reuses the Idempotency-Key of \"Place order\" with a different quantity. The key already created an order for other data, so the API refuses it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order - same key, another request",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{placeOrderKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Reuses the Idempotency-Key of \"Place order\" with a different quantity. The key already created an order for other data, so the API refuses it.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 3\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Unprocessable Content",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"the Idempotency-Key was already used with a different request\",\n  \"instance\": \"/api/v1/orders\",\n  \"status\": 422,\n  \"title\": \"Unprocessable Content\",\n  \"code\": \"IDEMPOTENCY_KEY_REUSED\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order - not found",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 404', () => pm.response.to.have.status(404));",
+                  "pm.test('returns code ORDER_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/00000000-0000-0000-0000-000000000000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "00000000-0000-0000-0000-000000000000"
+              ]
+            },
+            "description": "Retrieves an order that does not exist."
+          },
+          "response": [
+            {
+              "name": "Retrieve order - not found",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/00000000-0000-0000-0000-000000000000",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "00000000-0000-0000-0000-000000000000"
+                  ]
+                },
+                "description": "Retrieves an order that does not exist."
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"no order found with id 00000000-0000-0000-0000-000000000000\",\n  \"instance\": \"/api/v1/orders/00000000-0000-0000-0000-000000000000\",\n  \"status\": 404,\n  \"title\": \"Not Found\",\n  \"code\": \"ORDER_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order - another customer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 404 so the order is not revealed', () => pm.response.to.have.status(404));",
+                  "pm.test('returns code ORDER_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "someone-else"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}"
+              ]
+            },
+            "description": "Another customer asks for the order created by \"Place order\". The API answers as if it did not exist."
+          },
+          "response": [
+            {
+              "name": "Retrieve order - another customer",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "someone-else"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}"
+                  ]
+                },
+                "description": "Another customer asks for the order created by \"Place order\". The API answers as if it did not exist."
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"no order found with id 6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"instance\": \"/api/v1/orders/6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"status\": 404,\n  \"title\": \"Not Found\",\n  \"code\": \"ORDER_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Confirm order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 202', () => pm.response.to.have.status(202));",
+                  "const order = pm.response.json();",
+                  "pm.test('the order waits for its payment for 5 minutes', () => {",
+                  "    pm.expect(order.id).to.eql(pm.collectionVariables.get('orderId'));",
+                  "    pm.expect(order.status).to.eql('PENDING_CONFIRMATION');",
+                  "    pm.expect(order.ticketStatus).to.eql('PENDING_CONFIRMATION');",
+                  "    const minutes = (new Date(order.expiresAt) - new Date(order.updatedAt)) / 60000;",
+                  "    pm.expect(minutes).to.be.within(4.9, 5.1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "confirm"
+              ]
+            },
+            "description": "Confirms the reserved order: its 2 tickets wait for the payment, which the payment provider notifies later (see \"Notify payment\"). If no payment arrives within 5 minutes, the order expires and the tickets go back to the inventory."
+          },
+          "response": [
+            {
+              "name": "Confirm order",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "confirm"
+                  ]
+                },
+                "description": "Confirms the reserved order: its 2 tickets wait for the payment, which the payment provider notifies later (see \"Notify payment\"). If no payment arrives within 5 minutes, the order expires and the tickets go back to the inventory."
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"PENDING_CONFIRMATION\",\n  \"ticketStatus\": \"PENDING_CONFIRMATION\",\n  \"expiresAt\": \"2026-10-10T12:06:00Z\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\",\n  \"updatedAt\": \"2026-10-10T12:01:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Confirm order - again",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 202', () => pm.response.to.have.status(202));",
+                  "pm.test('returns the same order, still waiting for its payment', () => pm.expect(pm.response.json().status).to.eql('PENDING_CONFIRMATION'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "confirm"
+              ]
+            },
+            "description": "Confirms the same order again, for example after a network retry. The API returns the order as it is and does not hold the tickets twice."
+          },
+          "response": [
+            {
+              "name": "Confirm order - again",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "confirm"
+                  ]
+                },
+                "description": "Confirms the same order again, for example after a network retry. The API returns the order as it is and does not hold the tickets twice."
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"PENDING_CONFIRMATION\",\n  \"ticketStatus\": \"PENDING_CONFIRMATION\",\n  \"expiresAt\": \"2026-10-10T12:06:00Z\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\",\n  \"updatedAt\": \"2026-10-10T12:01:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Notify payment - without result",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 400', () => pm.response.to.have.status(400));",
+                  "pm.test('returns code INVALID_PAYMENT_NOTIFICATION', () => pm.expect(pm.response.json().code).to.eql('INVALID_PAYMENT_NOTIFICATION'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/payment",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "payment"
+              ]
+            },
+            "description": "A notification must say whether the payment was approved or declined.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Notify payment - without result",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/payment",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "payment"
+                  ]
+                },
+                "description": "A notification must say whether the payment was approved or declined.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"result is required and must be APPROVED or DECLINED\",\n  \"instance\": \"/api/v1/orders/6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f/payment\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"INVALID_PAYMENT_NOTIFICATION\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Notify payment - approved",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('the tickets are sold', () => {",
+                  "    pm.expect(pm.response.json().status).to.eql('SOLD');",
+                  "    pm.expect(pm.response.json().ticketStatus).to.eql('SOLD');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/payment",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "payment"
+              ]
+            },
+            "description": "Simulates the notification (webhook) of the payment provider: the payment was approved, so the tickets become sold.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"result\": \"APPROVED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Notify payment - approved",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/payment",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "payment"
+                  ]
+                },
+                "description": "Simulates the notification (webhook) of the payment provider: the payment was approved, so the tickets become sold.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"result\": \"APPROVED\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"SOLD\",\n  \"ticketStatus\": \"SOLD\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\",\n  \"updatedAt\": \"2026-10-10T12:01:30Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Notify payment - approved again",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('returns the same sold order', () => pm.expect(pm.response.json().status).to.eql('SOLD'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/payment",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "payment"
+              ]
+            },
+            "description": "Payment providers repeat their notifications. The same notification again returns the order as it is.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"result\": \"APPROVED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Notify payment - approved again",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/payment",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "payment"
+                  ]
+                },
+                "description": "Payment providers repeat their notifications. The same notification again returns the order as it is.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"result\": \"APPROVED\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"SOLD\",\n  \"ticketStatus\": \"SOLD\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\",\n  \"updatedAt\": \"2026-10-10T12:01:30Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order history",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "const history = pm.response.json();",
+                  "pm.test('records the 4 transitions of a sold order, oldest first', () => {",
+                  "    pm.expect(history.orderId).to.eql(pm.collectionVariables.get('orderId'));",
+                  "    const steps = history.transitions.map(t => `${t.fromStatus || '-'}>${t.toStatus}:${t.reason}`);",
+                  "    pm.expect(steps).to.eql(['->QUEUED:ORDER_PLACED', 'QUEUED>RESERVED:TICKETS_RESERVED', 'RESERVED>PENDING_CONFIRMATION:ORDER_CONFIRMED', 'PENDING_CONFIRMATION>SOLD:PAYMENT_APPROVED']);",
+                  "});",
+                  "pm.test('the transitions are in time order', () => {",
+                  "    const times = history.transitions.map(t => new Date(t.occurredAt).getTime());",
+                  "    pm.expect(times).to.eql([...times].sort((a, b) => a - b));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "history"
+              ]
+            },
+            "description": "Returns every transition of the order, oldest first: where it came from, where it went, why and when. Each transition is written in the same transaction as the change."
+          },
+          "response": [
+            {
+              "name": "Retrieve order history",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/history",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "history"
+                  ]
+                },
+                "description": "Returns every transition of the order, oldest first: where it came from, where it went, why and when. Each transition is written in the same transaction as the change."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"orderId\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"transitions\": [\n    {\n      \"toStatus\": \"QUEUED\",\n      \"reason\": \"ORDER_PLACED\",\n      \"occurredAt\": \"2026-10-10T12:00:00.000Z\"\n    },\n    {\n      \"fromStatus\": \"QUEUED\",\n      \"toStatus\": \"RESERVED\",\n      \"reason\": \"TICKETS_RESERVED\",\n      \"occurredAt\": \"2026-10-10T12:00:00.150Z\"\n    },\n    {\n      \"fromStatus\": \"RESERVED\",\n      \"toStatus\": \"SOLD\",\n      \"reason\": \"ORDER_CONFIRMED\",\n      \"occurredAt\": \"2026-10-10T12:01:00.000Z\"\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve event - after the sale",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('the 2 tickets are sold', () => {",
+                  "    pm.expect(pm.response.json().inventory).to.eql({ available: 4998, reserved: 0, pendingConfirmation: 0, sold: 2, complimentary: 0 });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{eventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{eventId}}"
+              ]
+            },
+            "description": "The inventory of the event shows the 2 tickets as sold, not reserved."
+          },
+          "response": [
+            {
+              "name": "Retrieve event - after the sale",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{eventId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{eventId}}"
+                  ]
+                },
+                "description": "The inventory of the event shows the 2 tickets as sold, not reserved."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"name\": \"Rock Concert\",\n  \"venue\": \"Movistar Arena\",\n  \"startsAt\": \"2026-11-09T01:00:00Z\",\n  \"finishesAt\": \"2026-11-09T04:00:00Z\",\n  \"capacity\": 5000,\n  \"inventory\": {\n    \"available\": 4998,\n    \"reserved\": 0,\n    \"pendingConfirmation\": 0,\n    \"sold\": 2,\n    \"complimentary\": 0\n  },\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve availability - after the sale",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('counts the sold tickets', () => {",
+                  "    pm.expect(pm.response.json()).to.include({ available: 4998, reserved: 0, sold: 2 });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{eventId}}/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{eventId}}",
+                "availability"
+              ]
+            },
+            "description": "The availability counts the 2 sold tickets, so they are no longer available."
+          },
+          "response": [
+            {
+              "name": "Retrieve availability - after the sale",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{eventId}}/availability",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{eventId}}",
+                    "availability"
+                  ]
+                },
+                "description": "The availability counts the 2 sold tickets, so they are no longer available."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"capacity\": 5000,\n  \"available\": 4998,\n  \"reserved\": 0,\n  \"pendingConfirmation\": 0,\n  \"sold\": 2,\n  \"complimentary\": 0,\n  \"asOf\": \"2026-10-11T12:05:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Confirm order - another customer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 404 so the order is not revealed', () => pm.response.to.have.status(404));",
+                  "pm.test('returns code ORDER_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "someone-else"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "confirm"
+              ]
+            },
+            "description": "Another customer tries to confirm the order. The API answers as if it did not exist."
+          },
+          "response": [
+            {
+              "name": "Confirm order - another customer",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "someone-else"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "confirm"
+                  ]
+                },
+                "description": "Another customer tries to confirm the order. The API answers as if it did not exist."
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"no order found with id 6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"instance\": \"/api/v1/orders/6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f/confirm\",\n  \"status\": 404,\n  \"title\": \"Not Found\",\n  \"code\": \"ORDER_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order history - another customer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 404 so the order is not revealed', () => pm.response.to.have.status(404));",
+                  "pm.test('returns code ORDER_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "someone-else"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "history"
+              ]
+            },
+            "description": "Another customer asks for the history. The API answers as if the order did not exist."
+          },
+          "response": [
+            {
+              "name": "Retrieve order history - another customer",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "someone-else"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/history",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{orderId}}",
+                    "history"
+                  ]
+                },
+                "description": "Another customer asks for the history. The API answers as if the order did not exist."
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"no order found with id 6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"instance\": \"/api/v1/orders/6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f/history\",\n  \"status\": 404,\n  \"title\": \"Not Found\",\n  \"code\": \"ORDER_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Place order - event not found",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 404', () => pm.response.to.have.status(404));",
+                  "pm.test('returns code EVENT_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('EVENT_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Places an order for an event that does not exist.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"00000000-0000-0000-0000-000000000000\",\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order - event not found",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{$guid}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Places an order for an event that does not exist.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"00000000-0000-0000-0000-000000000000\",\n  \"quantity\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"no event found with id 00000000-0000-0000-0000-000000000000\",\n  \"instance\": \"/api/v1/orders\",\n  \"status\": 404,\n  \"title\": \"Not Found\",\n  \"code\": \"EVENT_NOT_FOUND\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Place order - invalid quantity",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 400', () => pm.response.to.have.status(400));",
+                  "pm.test('returns code INVALID_ORDER_QUANTITY', () => pm.expect(pm.response.json().code).to.eql('INVALID_ORDER_QUANTITY'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Asks for more tickets than an order allows (maximum 6).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 7\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order - invalid quantity",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{$guid}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Asks for more tickets than an order allows (maximum 6).",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 7\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"quantity must be between 1 and 6 but was 7\",\n  \"instance\": \"/api/v1/orders\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"INVALID_ORDER_QUANTITY\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Place order - missing key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 400', () => pm.response.to.have.status(400));",
+                  "pm.test('returns code IDEMPOTENCY_KEY_REQUIRED', () => pm.expect(pm.response.json().code).to.eql('IDEMPOTENCY_KEY_REQUIRED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Places an order without an Idempotency-Key. The key is required, so a retry can never create a second order.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order - missing key",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Places an order without an Idempotency-Key. The key is required, so a retry can never create a second order.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"the Idempotency-Key header is required\",\n  \"instance\": \"/api/v1/orders\",\n  \"status\": 400,\n  \"title\": \"Bad Request\",\n  \"code\": \"IDEMPOTENCY_KEY_REQUIRED\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Payment declined",
+      "description": "An order whose payment the provider declines: it is rejected and its tickets go back to the inventory.",
+      "item": [
+        {
+          "name": "Place order - to decline its payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 202', () => pm.response.to.have.status(202));",
+                  "pm.collectionVariables.set('declinedOrderId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Places another order, whose payment will be declined.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{$guid}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Places another order, whose payment will be declined.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                },
+                {
+                  "key": "Location",
+                  "value": "/api/v1/orders/055d55a0-fbe3-45ac-b706-10a48c14901d"
+                }
+              ],
+              "body": "{\n  \"id\": \"055d55a0-fbe3-45ac-b706-10a48c14901d\",\n  \"eventId\": \"1b1b2e02-3c00-465c-9dcb-d11b1d38157e\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"QUEUED\",\n  \"createdAt\": \"2026-10-10T23:07:44.366634460Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order - wait for the reservation",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Waits a moment before each attempt, so the queue consumer can process the order",
+                  "setTimeout(() => {}, 1000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// The consumer processes the order asynchronously: repeat this request while the order is still queued",
+                  "const order = pm.response.json();",
+                  "const attempts = Number(pm.collectionVariables.get('pollAttempts') || 0);",
+                  "if (order.status === 'QUEUED' && attempts < 10) {",
+                  "    pm.collectionVariables.set('pollAttempts', attempts + 1);",
+                  "    postman.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset('pollAttempts');",
+                  "    pm.test('the tickets are reserved', () => pm.expect(order.status).to.eql('RESERVED'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{declinedOrderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{declinedOrderId}}"
+              ]
+            },
+            "description": "Waits until the queue consumer reserves the tickets of the order."
+          },
+          "response": [
+            {
+              "name": "Retrieve order",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{declinedOrderId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{declinedOrderId}}"
+                  ]
+                },
+                "description": "Waits until the queue consumer reserves the tickets of the order."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"RESERVED\",\n  \"expiresAt\": \"2026-10-10T12:10:00Z\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Confirm order - to decline its payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 202', () => pm.response.to.have.status(202));",
+                  "pm.test('waits for its payment', () => pm.expect(pm.response.json().status).to.eql('PENDING_CONFIRMATION'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{declinedOrderId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{declinedOrderId}}",
+                "confirm"
+              ]
+            },
+            "description": "Confirms the order, so it waits for its payment."
+          },
+          "response": [
+            {
+              "name": "Confirm order - to decline its payment",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{declinedOrderId}}/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{declinedOrderId}}",
+                    "confirm"
+                  ]
+                },
+                "description": "Confirms the order, so it waits for its payment."
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"6f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"PENDING_CONFIRMATION\",\n  \"ticketStatus\": \"PENDING_CONFIRMATION\",\n  \"expiresAt\": \"2026-10-10T12:06:00Z\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\",\n  \"updatedAt\": \"2026-10-10T12:01:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Notify payment - declined",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "const order = pm.response.json();",
+                  "pm.test('the order is rejected and its tickets are available again', () => {",
+                  "    pm.expect(order.status).to.eql('REJECTED');",
+                  "    pm.expect(order.rejectionReason).to.eql('PAYMENT_DECLINED');",
+                  "    pm.expect(order.ticketStatus).to.eql('AVAILABLE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{declinedOrderId}}/payment",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{declinedOrderId}}",
+                "payment"
+              ]
+            },
+            "description": "The payment provider declined the payment: the order is rejected and its tickets are available again.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"result\": \"DECLINED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Notify payment - declined",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{declinedOrderId}}/payment",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{declinedOrderId}}",
+                    "payment"
+                  ]
+                },
+                "description": "The payment provider declined the payment: the order is rejected and its tickets are available again.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"result\": \"DECLINED\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"8b7a6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d\",\n  \"eventId\": \"3b241101-e2bb-4255-8caf-4136c566a962\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"REJECTED\",\n  \"ticketStatus\": \"AVAILABLE\",\n  \"rejectionReason\": \"PAYMENT_DECLINED\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\",\n  \"updatedAt\": \"2026-10-10T12:02:00Z\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Complimentary",
+      "description": "The organizer gives tickets away (COMPLIMENTARY). The request needs the X-Admin-Key header; locally its value is local-admin-key (docker-compose.yml).",
+      "item": [
+        {
+          "name": "Create event - for complimentary tickets",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('complimentaryEventId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events"
+              ]
+            },
+            "description": "Creates an event with 3 tickets: the organizer gives 2 of them away and then asks for 2 more than are left.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Gala Night\",\n  \"venue\": \"Teatro Metropolitano\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Create event - for complimentary tickets",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "Creates an event with 3 tickets: the organizer gives 2 of them away and then asks for 2 more than are left.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Gala Night\",\n  \"venue\": \"Teatro Metropolitano\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 3\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e\",\n  \"name\": \"Gala Night\",\n  \"venue\": \"Teatro Metropolitano\",\n  \"startsAt\": \"2026-11-10T01:00:00Z\",\n  \"finishesAt\": \"2026-11-10T04:00:00Z\",\n  \"capacity\": 3,\n  \"inventory\": {\n    \"available\": 3,\n    \"reserved\": 0,\n    \"pendingConfirmation\": 0,\n    \"sold\": 0,\n    \"complimentary\": 0\n  },\n  \"createdAt\": \"2026-10-11T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Issue complimentary - without the admin key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 403 Forbidden', () => pm.response.to.have.status(403));",
+                  "pm.test('returns its own error code', () => pm.expect(pm.response.json().code).to.eql('ADMIN_ACCESS_DENIED'));"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A new Idempotency-Key for each run of the collection; the retry below sends it again",
+                  "pm.collectionVariables.set('complimentaryKey', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{complimentaryKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{complimentaryEventId}}",
+                "complimentary"
+              ]
+            },
+            "description": "Only the organizer can give tickets away. Without a valid X-Admin-Key header the request is denied and no ticket moves.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Issue complimentary - without the admin key",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{complimentaryKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{complimentaryEventId}}",
+                    "complimentary"
+                  ]
+                },
+                "description": "Only the organizer can give tickets away. Without a valid X-Admin-Key header the request is denied and no ticket moves.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"this operation requires a valid X-Admin-Key header\",\n  \"instance\": \"/api/v1/events/9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e/complimentary\",\n  \"status\": 403,\n  \"title\": \"Forbidden\",\n  \"code\": \"ADMIN_ACCESS_DENIED\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Issue complimentary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 201 Created', () => pm.response.to.have.status(201));",
+                  "const order = pm.response.json();",
+                  "pm.test('returns the complimentary order of the guest', () => {",
+                  "    pm.expect(order.eventId).to.eql(pm.collectionVariables.get('complimentaryEventId'));",
+                  "    pm.expect(order.customerId).to.eql(pm.collectionVariables.get('recipientId'));",
+                  "    pm.expect(order.quantity).to.eql(2);",
+                  "    pm.expect(order.status).to.eql('COMPLIMENTARY');",
+                  "    pm.expect(order.ticketStatus).to.eql('COMPLIMENTARY');",
+                  "    pm.expect(order).to.not.have.property('expiresAt');",
+                  "});",
+                  "pm.test('returns the Location of the new order', () => {",
+                  "    pm.expect(pm.response.headers.get('Location')).to.eql(`/api/v1/orders/${order.id}`);",
+                  "    pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('false');",
+                  "});",
+                  "pm.collectionVariables.set('complimentaryOrderId', order.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Admin-Key",
+                "value": "{{adminKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{complimentaryKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{complimentaryEventId}}",
+                "complimentary"
+              ]
+            },
+            "description": "Gives 2 tickets away to a guest. One conditional DynamoDB transaction takes them from the available tickets, creates the order, records its history and claims the Idempotency-Key. Returns 201: there is no queue and no payment.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Issue complimentary",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Admin-Key",
+                    "value": "{{adminKey}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{complimentaryKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{complimentaryEventId}}",
+                    "complimentary"
+                  ]
+                },
+                "description": "Gives 2 tickets away to a guest. One conditional DynamoDB transaction takes them from the available tickets, creates the order, records its history and claims the Idempotency-Key. Returns 201: there is no queue and no payment.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"5f4e3d2c-1b0a-4c9d-8e7f-6a5b4c3d2e1f\",\n  \"eventId\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e\",\n  \"customerId\": \"guest-001\",\n  \"quantity\": 2,\n  \"status\": \"COMPLIMENTARY\",\n  \"ticketStatus\": \"COMPLIMENTARY\",\n  \"createdAt\": \"2026-10-11T12:00:00Z\",\n  \"updatedAt\": \"2026-10-11T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Issue complimentary - retry with the same key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('returns the same order, replayed', () => {",
+                  "    pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('complimentaryOrderId'));",
+                  "    pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('true');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Admin-Key",
+                "value": "{{adminKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{complimentaryKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{complimentaryEventId}}",
+                "complimentary"
+              ]
+            },
+            "description": "Sends the same request again with the same Idempotency-Key, as a client does after a timeout. It returns the same order and no more tickets are taken.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Issue complimentary - retry with the same key",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Admin-Key",
+                    "value": "{{adminKey}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{complimentaryKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{complimentaryEventId}}",
+                    "complimentary"
+                  ]
+                },
+                "description": "Sends the same request again with the same Idempotency-Key, as a client does after a timeout. It returns the same order and no more tickets are taken.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"5f4e3d2c-1b0a-4c9d-8e7f-6a5b4c3d2e1f\",\n  \"eventId\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e\",\n  \"customerId\": \"guest-001\",\n  \"quantity\": 2,\n  \"status\": \"COMPLIMENTARY\",\n  \"ticketStatus\": \"COMPLIMENTARY\",\n  \"createdAt\": \"2026-10-11T12:00:00Z\",\n  \"updatedAt\": \"2026-10-11T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Issue complimentary - more tickets than available",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('returns its own error code', () => pm.expect(pm.response.json().code).to.eql('TICKETS_SOLD_OUT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Admin-Key",
+                "value": "{{adminKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{complimentaryEventId}}",
+                "complimentary"
+              ]
+            },
+            "description": "Asks for 2 more tickets when only 1 is left. The condition of the transaction fails, so nothing is written.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Issue complimentary - more tickets than available",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Admin-Key",
+                    "value": "{{adminKey}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{$guid}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/complimentary",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{complimentaryEventId}}",
+                    "complimentary"
+                  ]
+                },
+                "description": "Asks for 2 more tickets when only 1 is left. The condition of the transaction fails, so nothing is written.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"recipientId\": \"{{recipientId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"event 9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e does not have 2 tickets available\",\n  \"instance\": \"/api/v1/events/9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e/complimentary\",\n  \"status\": 409,\n  \"title\": \"Conflict\",\n  \"code\": \"TICKETS_SOLD_OUT\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve availability - after the complimentary tickets",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('counts the complimentary tickets apart', () => {",
+                  "    const availability = pm.response.json();",
+                  "    pm.expect(availability.available).to.eql(1);",
+                  "    pm.expect(availability.complimentary).to.eql(2);",
+                  "    pm.expect(availability.sold).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{complimentaryEventId}}",
+                "availability"
+              ]
+            },
+            "description": "The 2 tickets given away left the available ones; the retry and the failed request did not move any ticket."
+          },
+          "response": [
+            {
+              "name": "Retrieve availability - after the complimentary tickets",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events/{{complimentaryEventId}}/availability",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events",
+                    "{{complimentaryEventId}}",
+                    "availability"
+                  ]
+                },
+                "description": "The 2 tickets given away left the available ones; the retry and the failed request did not move any ticket."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"eventId\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e\",\n  \"capacity\": 3,\n  \"available\": 1,\n  \"reserved\": 0,\n  \"pendingConfirmation\": 0,\n  \"sold\": 0,\n  \"complimentary\": 2,\n  \"asOf\": \"2026-10-11T12:00:01Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order - as the guest",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('returns the complimentary order', () => pm.expect(pm.response.json().status).to.eql('COMPLIMENTARY'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{recipientId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{complimentaryOrderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{complimentaryOrderId}}"
+              ]
+            },
+            "description": "The guest who received the tickets can read the order with their own customer id."
+          },
+          "response": [
+            {
+              "name": "Retrieve order - as the guest",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{recipientId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{complimentaryOrderId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{complimentaryOrderId}}"
+                  ]
+                },
+                "description": "The guest who received the tickets can read the order with their own customer id."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"5f4e3d2c-1b0a-4c9d-8e7f-6a5b4c3d2e1f\",\n  \"eventId\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6e\",\n  \"customerId\": \"guest-001\",\n  \"quantity\": 2,\n  \"status\": \"COMPLIMENTARY\",\n  \"ticketStatus\": \"COMPLIMENTARY\",\n  \"createdAt\": \"2026-10-11T12:00:00Z\",\n  \"updatedAt\": \"2026-10-11T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order history - complimentary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('has one transition, written when the tickets were issued', () => {",
+                  "    const transitions = pm.response.json().transitions;",
+                  "    pm.expect(transitions).to.have.lengthOf(1);",
+                  "    pm.expect(transitions[0]).to.not.have.property('fromStatus');",
+                  "    pm.expect(transitions[0].toStatus).to.eql('COMPLIMENTARY');",
+                  "    pm.expect(transitions[0].reason).to.eql('COMPLIMENTARY_ISSUED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{recipientId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{complimentaryOrderId}}/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{complimentaryOrderId}}",
+                "history"
+              ]
+            },
+            "description": "A complimentary order has a single transition: it is born with its tickets issued."
+          },
+          "response": [
+            {
+              "name": "Retrieve order history - complimentary",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{recipientId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{complimentaryOrderId}}/history",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{complimentaryOrderId}}",
+                    "history"
+                  ]
+                },
+                "description": "A complimentary order has a single transition: it is born with its tickets issued."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"orderId\": \"5f4e3d2c-1b0a-4c9d-8e7f-6a5b4c3d2e1f\",\n  \"transitions\": [\n    {\n      \"toStatus\": \"COMPLIMENTARY\",\n      \"reason\": \"COMPLIMENTARY_ISSUED\",\n      \"occurredAt\": \"2026-10-11T12:00:00Z\"\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Confirm order - complimentary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('returns its own error code', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_RESERVED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{recipientId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{complimentaryOrderId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{complimentaryOrderId}}",
+                "confirm"
+              ]
+            },
+            "description": "A complimentary order has nothing to pay, so it cannot be confirmed."
+          },
+          "response": [
+            {
+              "name": "Confirm order - complimentary",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{recipientId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{complimentaryOrderId}}/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{complimentaryOrderId}}",
+                    "confirm"
+                  ]
+                },
+                "description": "A complimentary order has nothing to pay, so it cannot be confirmed."
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"order 5f4e3d2c-1b0a-4c9d-8e7f-6a5b4c3d2e1f cannot be confirmed because it is COMPLIMENTARY\",\n  \"instance\": \"/api/v1/orders/5f4e3d2c-1b0a-4c9d-8e7f-6a5b4c3d2e1f/confirm\",\n  \"status\": 409,\n  \"title\": \"Conflict\",\n  \"code\": \"ORDER_NOT_RESERVED\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Sold out",
+      "description": "Shows an order that asks for more tickets than are left: it is accepted, and the queue consumer rejects it.",
+      "item": [
+        {
+          "name": "Create event - one ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('soldOutEventId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events"
+              ]
+            },
+            "description": "Creates an event with a single ticket, to show what happens when an order asks for more tickets than are left.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Small Show\",\n  \"venue\": \"Teatro Pablo Tobón\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Create event - one ticket",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "Creates an event with a single ticket, to show what happens when an order asks for more tickets than are left.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Small Show\",\n  \"venue\": \"Teatro Pablo Tobón\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"finishesAt\": \"{{finishesAt}}\",\n  \"capacity\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d\",\n  \"name\": \"Small Show\",\n  \"venue\": \"Teatro Pablo Tobón\",\n  \"startsAt\": \"2026-11-09T01:00:00Z\",\n  \"finishesAt\": \"2026-11-09T04:00:00Z\",\n  \"capacity\": 1,\n  \"inventory\": {\n    \"available\": 1,\n    \"reserved\": 0,\n    \"pendingConfirmation\": 0,\n    \"sold\": 0,\n    \"complimentary\": 0\n  },\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Place order - more tickets than available",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 202 Accepted', () => pm.response.to.have.status(202));",
+                  "pm.collectionVariables.set('soldOutOrderId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Asks for 2 tickets of an event that only has 1. The order is accepted at once: the stock is checked later by the queue consumer.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{soldOutEventId}}\",\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order - more tickets than available",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{$guid}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Asks for 2 tickets of an event that only has 1. The order is accepted at once: the stock is checked later by the queue consumer.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{soldOutEventId}}\",\n  \"quantity\": 2\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a\",\n  \"eventId\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"QUEUED\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order - sold out",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Waits a moment before each attempt, so the queue consumer can process the order",
+                  "setTimeout(() => {}, 1000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// The consumer processes the order asynchronously: repeat this request while the order is still queued.",
+                  "// The consumer usually answers in well under a second; 10 attempts (about 10 s) leave room for a slow start",
+                  "const order = pm.response.json();",
+                  "const attempts = Number(pm.collectionVariables.get('pollAttempts') || 0);",
+                  "if (order.status === 'QUEUED' && attempts < 10) {",
+                  "    pm.collectionVariables.set('pollAttempts', attempts + 1);",
+                  "    postman.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.unset('pollAttempts');",
+                  "    pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('the consumer rejected the order because the tickets are sold out', () => {",
+                  "        pm.expect(order.status).to.eql('REJECTED');",
+                  "        pm.expect(order.rejectionReason).to.eql('SOLD_OUT');",
+                  "        pm.expect(order).to.not.have.property('expiresAt');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{soldOutOrderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{soldOutOrderId}}"
+              ]
+            },
+            "description": "The queue consumer found only 1 ticket for an order of 2, so it rejected the order."
+          },
+          "response": [
+            {
+              "name": "Retrieve order - sold out",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{soldOutOrderId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{soldOutOrderId}}"
+                  ]
+                },
+                "description": "The queue consumer found only 1 ticket for an order of 2, so it rejected the order."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a\",\n  \"eventId\": \"9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d\",\n  \"customerId\": \"mateo\",\n  \"quantity\": 2,\n  \"status\": \"REJECTED\",\n  \"rejectionReason\": \"SOLD_OUT\",\n  \"createdAt\": \"2026-10-10T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrieve order history - sold out",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('records the placement and the rejection', () => {",
+                  "    const steps = pm.response.json().transitions.map(t => `${t.fromStatus || '-'}>${t.toStatus}:${t.reason}`);",
+                  "    pm.expect(steps).to.eql(['->QUEUED:ORDER_PLACED', 'QUEUED>REJECTED:SOLD_OUT']);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{soldOutOrderId}}/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{soldOutOrderId}}",
+                "history"
+              ]
+            },
+            "description": "The history of the rejected order shows why it was rejected."
+          },
+          "response": [
+            {
+              "name": "Retrieve order history - sold out",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{soldOutOrderId}}/history",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{soldOutOrderId}}",
+                    "history"
+                  ]
+                },
+                "description": "The history of the rejected order shows why it was rejected."
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"orderId\": \"1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a\",\n  \"transitions\": [\n    {\n      \"toStatus\": \"QUEUED\",\n      \"reason\": \"ORDER_PLACED\",\n      \"occurredAt\": \"2026-10-10T12:00:00.000Z\"\n    },\n    {\n      \"fromStatus\": \"QUEUED\",\n      \"toStatus\": \"REJECTED\",\n      \"reason\": \"SOLD_OUT\",\n      \"occurredAt\": \"2026-10-10T12:00:00.120Z\"\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Confirm order - rejected",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 409', () => pm.response.to.have.status(409));",
+                  "pm.test('returns code ORDER_NOT_RESERVED', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_RESERVED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{soldOutOrderId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{soldOutOrderId}}",
+                "confirm"
+              ]
+            },
+            "description": "A rejected order has no tickets to sell, so it cannot be confirmed."
+          },
+          "response": [
+            {
+              "name": "Confirm order - rejected",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders/{{soldOutOrderId}}/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders",
+                    "{{soldOutOrderId}}",
+                    "confirm"
+                  ]
+                },
+                "description": "A rejected order has no tickets to sell, so it cannot be confirmed."
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"order 1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a cannot be confirmed because it is REJECTED\",\n  \"instance\": \"/api/v1/orders/1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a/confirm\",\n  \"status\": 409,\n  \"title\": \"Conflict\",\n  \"code\": \"ORDER_NOT_RESERVED\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Event closed",
+      "description": "Shows that sales close when an event starts.",
+      "item": [
+        {
+          "name": "Create event - starting in 3 seconds",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const startsAt = Date.now() + 3000;",
+                  "pm.collectionVariables.set('soonStartsAt', new Date(startsAt).toISOString());",
+                  "pm.collectionVariables.set('soonFinishesAt', new Date(startsAt + 3 * 60 * 60 * 1000).toISOString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('closedEventId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events"
+              ]
+            },
+            "description": "Creates an event that starts 3 seconds from now. The API does not accept events in the past, so this is how the collection gets an event whose sales close during the run.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Last Minute Show\",\n  \"venue\": \"Teatro Metropolitano\",\n  \"startsAt\": \"{{soonStartsAt}}\",\n  \"finishesAt\": \"{{soonFinishesAt}}\",\n  \"capacity\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Create event - starting in 3 seconds",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "events"
+                  ]
+                },
+                "description": "Creates an event that starts 3 seconds from now. The API does not accept events in the past, so this is how the collection gets an event whose sales close during the run.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Last Minute Show\",\n  \"venue\": \"Teatro Metropolitano\",\n  \"startsAt\": \"{{soonStartsAt}}\",\n  \"finishesAt\": \"{{soonFinishesAt}}\",\n  \"capacity\": 100\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"5c4b3a29-1807-4f6e-9d5c-4b3a29180700\",\n  \"name\": \"Last Minute Show\",\n  \"venue\": \"Teatro Metropolitano\",\n  \"startsAt\": \"2026-10-11T18:00:03Z\",\n  \"finishesAt\": \"2026-10-11T21:00:03Z\",\n  \"capacity\": 100,\n  \"inventory\": {\n    \"available\": 100,\n    \"reserved\": 0,\n    \"pendingConfirmation\": 0,\n    \"sold\": 0,\n    \"complimentary\": 0\n  },\n  \"createdAt\": \"2026-10-11T18:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Place order - event already started",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Waits until the event created by the previous request has started",
+                  "setTimeout(() => {}, 4000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns 422', () => pm.response.to.have.status(422));",
+                  "pm.test('returns code EVENT_CLOSED', () => pm.expect(pm.response.json().code).to.eql('EVENT_CLOSED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Customer-Id",
+                "value": "{{customerId}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Waits until the event starts and then tries to buy. Sales close when the event starts, so the API answers 422 and saves no order.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{closedEventId}}\",\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Place order - event already started",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Customer-Id",
+                    "value": "{{customerId}}"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{$guid}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "orders"
+                  ]
+                },
+                "description": "Waits until the event starts and then tries to buy. Sales close when the event starts, so the API answers 422 and saves no order.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"eventId\": \"{{closedEventId}}\",\n  \"quantity\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Unprocessable Content",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"event 5c4b3a29-1807-4f6e-9d5c-4b3a29180700 already started, so its sales are closed\",\n  \"instance\": \"/api/v1/orders\",\n  \"status\": 422,\n  \"title\": \"Unprocessable Content\",\n  \"code\": \"EVENT_CLOSED\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "eventId",
+      "value": ""
+    },
+    {
+      "key": "startsAt",
+      "value": ""
+    },
+    {
+      "key": "finishesAt",
+      "value": ""
+    },
+    {
+      "key": "pastStartsAt",
+      "value": ""
+    },
+    {
+      "key": "pastFinishesAt",
+      "value": ""
+    },
+    {
+      "key": "customerId",
+      "value": "mateo"
+    },
+    {
+      "key": "orderId",
+      "value": ""
+    },
+    {
+      "key": "soldOutEventId",
+      "value": ""
+    },
+    {
+      "key": "soldOutOrderId",
+      "value": ""
+    },
+    {
+      "key": "soonStartsAt",
+      "value": ""
+    },
+    {
+      "key": "soonFinishesAt",
+      "value": ""
+    },
+    {
+      "key": "closedEventId",
+      "value": ""
+    },
+    {
+      "key": "placeOrderKey",
+      "value": ""
+    },
+    {
+      "key": "declinedOrderId",
+      "value": ""
+    },
+    {
+      "key": "adminKey",
+      "value": "local-admin-key"
+    },
+    {
+      "key": "recipientId",
+      "value": "guest-001"
+    },
+    {
+      "key": "complimentaryEventId",
+      "value": ""
+    },
+    {
+      "key": "complimentaryOrderId",
+      "value": ""
+    },
+    {
+      "key": "complimentaryKey",
+      "value": ""
+    }
+  ]
+}

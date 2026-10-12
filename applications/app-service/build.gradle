@@ -1,20 +1,60 @@
 apply plugin: 'org.springframework.boot'
 
 dependencies {
-	implementation project(':sqs-sender')
-	implementation 'org.reactivecommons.utils:object-mapper:0.1.0'
-	implementation project(':dynamo-db')
 	implementation project(':scheduler')
-	implementation project(':metrics')
-	implementation 'software.amazon.awssdk:sts'
 	implementation project(':sqs-listener')
+	implementation project(':sqs-sender')
+	implementation project(':dynamo-db')
+	implementation project(':metrics')
 	implementation project(':reactive-web')
     implementation project(':model')
     implementation project(':usecase')
     implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
     runtimeOnly('org.springframework.boot:spring-boot-devtools')
     testImplementation 'com.tngtech.archunit:archunit:1.5.1'
     testImplementation 'tools.jackson.core:jackson-databind'
+}
+
+// Integration tests against the real infrastructure: LocalStack (DynamoDB and SQS) in Docker, with the resources
+// created by the same Terraform as the local environment. They need Docker, so they run apart from the unit tests:
+// ./gradlew integrationTest
+testing {
+    suites {
+        integrationTest(JvmTestSuite) {
+            // The plain jar of this module is disabled (only the boot jar is built), so the suite uses the main
+            // classes and the dependencies of the application directly
+            sources {
+                compileClasspath += sourceSets.main.output
+                runtimeClasspath += sourceSets.main.output
+            }
+            dependencies {
+                implementation platform("org.springframework.boot:spring-boot-dependencies:${springBootVersion}")
+                implementation 'org.springframework.boot:spring-boot-starter-test'
+                implementation 'org.springframework:spring-webflux'
+                implementation 'org.testcontainers:testcontainers-junit-jupiter'
+                implementation 'org.testcontainers:testcontainers-localstack'
+                implementation 'org.awaitility:awaitility'
+                runtimeOnly 'org.junit.platform:junit-platform-launcher'
+            }
+            targets.configureEach {
+                testTask.configure {
+                    group = 'ticketing'
+                    description = 'Runs the integration tests against LocalStack and the real Terraform (needs Docker).'
+                    useJUnitPlatform()
+                    shouldRunAfter tasks.named('test')
+                    // Dummy LocalStack credentials for the AWS SDK default provider; they are not secrets
+                    systemProperty 'aws.accessKeyId', 'test'
+                    systemProperty 'aws.secretAccessKey', 'test'
+                    systemProperty 'ticketing.terraform-dir', rootProject.file('infra/terraform').absolutePath
+                }
+            }
+        }
+    }
+}
+
+configurations {
+    integrationTestImplementation.extendsFrom implementation
 }
 
 tasks.register('explodedJar', Copy) {

@@ -1,14 +1,21 @@
 package co.com.ticketing.sqs.listener.config;
 
+import jakarta.validation.constraints.NotBlank;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.validation.annotation.Validated;
 
-@ConfigurationProperties(prefix = "entrypoint.sqs")
+/**
+ * Settings of the queue listener. The visibility timeout is not set here: the queue owns it.
+ */
+@Validated
+@ConfigurationProperties(prefix = SQSProperties.PREFIX)
 public record SQSProperties(
-        String region,
+        @NotBlank String region,
         String endpoint,
-        String queueUrl,
+        @NotBlank String queueUrl,
         int waitTimeSeconds,
-        int visibilityTimeoutSeconds,
         int maxNumberOfMessages,
         int numberOfThreads) {
+
+    public static final String PREFIX = "entrypoint.sqs";
 }

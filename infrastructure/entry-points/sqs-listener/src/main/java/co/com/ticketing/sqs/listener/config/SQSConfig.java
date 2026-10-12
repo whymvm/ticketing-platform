@@ -1,62 +1,44 @@
 package co.com.ticketing.sqs.listener.config;
 
 import co.com.ticketing.sqs.listener.helper.SQSListener;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import reactor.core.publisher.Mono;
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
-import software.amazon.awssdk.auth.credentials.ContainerCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.metrics.MetricPublisher;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
+import software.amazon.awssdk.services.sqs.SqsAsyncClientBuilder;
 import software.amazon.awssdk.services.sqs.model.Message;
 
 import java.net.URI;
+import java.util.Optional;
 import java.util.function.Function;
 
 @Configuration
 public class SQSConfig {
 
-    @Bean
-    public SQSListener sqsListener(SqsAsyncClient client, SQSProperties properties, Function<Message, Mono<Void>> fn) {
-        return SQSListener.builder()
-                .client(client)
-                .properties(properties)
-                .processor(fn)
-                .build()
-                .start();
-    }
+    public static final String CLIENT = "sqsListenerClient";
 
     @Bean
-    public SqsAsyncClient configSqs(SQSProperties properties, MetricPublisher publisher) {
-        return SqsAsyncClient.builder()
-                .endpointOverride(resolveEndpoint(properties))
+    public SQSListener sqsListener(@Qualifier(CLIENT) SqsAsyncClient client, SQSProperties properties,
+                                   Function<Message, Mono<Void>> fn, MeterRegistry meterRegistry) {
+        // Spring starts it when the application is ready and stops it on shutdown (SmartLifecycle)
+        return new SQSListener(client, properties, fn, meterRegistry);
+    }
+
+    @Bean(CLIENT)
+    public SqsAsyncClient sqsListenerClient(SQSProperties properties, MetricPublisher publisher) {
+        SqsAsyncClientBuilder builder = SqsAsyncClient.builder()
+                .credentialsProvider(DefaultCredentialsProvider.builder().build())
                 .region(Region.of(properties.region()))
-                .overrideConfiguration(o -> o.addMetricPublisher(publisher))
-                .credentialsProvider(getProviderChain())
-                .build();
-    }
-
-    private AwsCredentialsProviderChain getProviderChain() {
-        return AwsCredentialsProviderChain.builder()
-                .addCredentialsProvider(EnvironmentVariableCredentialsProvider.create())
-                .addCredentialsProvider(SystemPropertyCredentialsProvider.create())
-                .addCredentialsProvider(WebIdentityTokenFileCredentialsProvider.create())
-                .addCredentialsProvider(ProfileCredentialsProvider.create())
-                .addCredentialsProvider(ContainerCredentialsProvider.builder().build())
-                .addCredentialsProvider(InstanceProfileCredentialsProvider.create())
-                .build();
-    }
-
-    protected URI resolveEndpoint(SQSProperties properties) {
-        if (properties.endpoint() != null) {
-            return URI.create(properties.endpoint());
-        }
-        return null;
+                .overrideConfiguration(o -> o.addMetricPublisher(publisher));
+        Optional.ofNullable(properties.endpoint())
+                .filter(endpoint -> !endpoint.isBlank())
+                .map(URI::create)
+                .ifPresent(builder::endpointOverride);
+        return builder.build();
     }
 }

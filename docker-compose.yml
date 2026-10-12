@@ -1,0 +1,70 @@
+# Local environment: LocalStack (DynamoDB + SQS) -> Terraform creates the resources -> the application starts.
+# LocalStack data is ephemeral. The Terraform state is kept in a volume and reconciled on every run (refresh),
+# so restarting any service is safe. `docker compose down -v` resets everything.
+name: ticketing-platform
+
+services:
+  localstack:
+    image: localstack/localstack:4.14.0 # last community release that runs without an auth token
+    environment:
+      SERVICES: dynamodb,sqs
+      AWS_DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  terraform:
+    image: hashicorp/terraform:1.16.3
+    working_dir: /infra/envs/local
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        terraform init -input=false -backend-config=path=/state/terraform.tfstate &&
+        terraform apply -input=false -auto-approve
+    environment:
+      TF_DATA_DIR: /tmp/.terraform           # keep provider binaries out of the repository
+      TF_PLUGIN_CACHE_DIR: /plugin-cache     # avoid downloading the AWS provider on every run
+      TF_VAR_localstack_endpoint: http://localstack:4566
+    volumes:
+      - ./infra/terraform:/infra
+      - terraform-plugins:/plugin-cache
+      - terraform-state:/state
+    tmpfs:
+      - /tmp
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+  app:
+    # Built from the source by default. To run a published release instead:
+    # APP_IMAGE=ghcr.io/whymvm/ticketing-platform:<version> docker compose up --no-build --wait
+    image: ${APP_IMAGE:-ticketing-platform-app}
+    build:
+      context: .
+      dockerfile: deployment/Dockerfile
+    environment:
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test        # dummy LocalStack credentials, not secrets
+      AWS_SECRET_ACCESS_KEY: test
+      ADMIN_API_KEY: local-admin-key # local-only key for the complimentary tickets, not a secret
+      EVENTS_TABLE: local-ticketing-events
+      ORDERS_TABLE: local-ticketing-orders
+      ORDER_HISTORY_TABLE: local-ticketing-order-history
+      IDEMPOTENCY_TABLE: local-ticketing-idempotency
+      QUEUE_RESERVATIONS_URL: http://localstack:4566/000000000000/local-ticketing-reservations
+    ports:
+      - "8080:8080"
+    # Longer than the two shutdown phases of the application (15 s each), so Docker does not kill it first
+    stop_grace_period: 35s
+    depends_on:
+      terraform:
+        condition: service_completed_successfully
+
+volumes:
+  terraform-plugins:
+  terraform-state:

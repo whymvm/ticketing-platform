@@ -1,0 +1,174 @@
+# Continuous integration: builds, tests and validates every change before it reaches develop or main.
+# Gitflow: feature/* opens pull requests to develop; release/* and hotfix/* merge into main and develop.
+# Base generated with the Bancolombia scaffold task `./gradlew gpl --type=github`, then hardened following the
+# GitHub Actions security guide (least-privilege token, actions pinned to full commit SHAs) and DORA CI practices
+# (fast feedback on every change, reliable tests, visible results).
+# The four jobs are independent and run in parallel, so the slowest one sets the feedback time.
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main, 'release/**', 'hotfix/**']
+  workflow_dispatch:
+
+# Read-only token by default; no job needs to write to the repository.
+permissions:
+  contents: read
+
+# A new push to the same pull request or branch cancels the run that is now outdated.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Compiles, validates the Clean Architecture structure, runs the unit tests and fails below the minimum line
+  # coverage (minLineCoverage in gradle.properties, the only source of that value).
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      # Caches Gradle dependencies and validates the Gradle wrapper checksum.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      # Mutation tests (PIT) are not part of build; they run on demand with ./gradlew mutationTest.
+      - name: Build and run the unit tests
+        run: ./gradlew build coverageReport
+
+      - name: Show the line coverage
+        if: success() || failure()
+        run: |
+          python3 - <<'EOF'
+          import os, xml.etree.ElementTree as ET
+
+          report = "build/reports/coverage/coverage.xml"
+          if not os.path.exists(report):
+              raise SystemExit("No coverage report was found")
+          line = next(c for c in ET.parse(report).getroot().findall("counter") if c.get("type") == "LINE")
+          covered, missed = int(line.get("covered")), int(line.get("missed"))
+          summary = f"### Line coverage: {covered / (covered + missed) * 100:.1f}% ({covered} of {covered + missed} lines)"
+          print(summary)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as file:
+              file.write(summary + "\n")
+          EOF
+
+      - name: Upload test and coverage reports
+        if: success() || failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unit-test-reports
+          path: |
+            **/build/reports/tests/test/
+            build/reports/coverage/
+          retention-days: 7
+
+  # The concurrency test against the whole application: LocalStack in Docker with the resources created by the real
+  # Terraform (Testcontainers). The hosted runner already has Docker.
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Run the integration tests
+        run: ./gradlew integrationTest
+
+      - name: Upload the integration test report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: integration-test-reports
+          path: applications/app-service/build/reports/tests/integrationTest/
+          retention-days: 7
+
+  # Format, validation of every stack and a security scan of the infrastructure code. No AWS credentials needed.
+  terraform:
+    name: Validate Terraform
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.3
+          terraform_wrapper: false
+
+      - name: Check formatting
+        run: terraform fmt -check -recursive infra/terraform
+
+      # Every stack is validated without credentials: -backend=false skips the remote state
+      - name: Validate every stack
+        run: |
+          for stack in envs/local envs/prod bootstrap; do
+            echo "Validating ${stack}"
+            terraform -chdir="infra/terraform/${stack}" init -backend=false -input=false
+            terraform -chdir="infra/terraform/${stack}" validate
+          done
+
+      # Static security analysis of the infrastructure. Accepted risks are skipped inside each resource with their
+      # reason, so any new finding fails the job. The LocalStack environment is excluded: it turns backups off on
+      # purpose. The image is pinned by digest, like the actions.
+      - name: Scan the infrastructure code
+        run: |
+          docker run --rm -v "${PWD}/infra/terraform:/tf" \
+            bridgecrew/checkov@sha256:81c3b0cd32f05bb5ac98d3371224dd505419768a76527e1b7ff220a5d91aafcf \
+            -d /tf --framework terraform --compact --quiet --skip-path envs/local
+
+  # Builds the production image on an ARM64 runner, the same architecture as the Fargate tasks (Graviton), so a
+  # broken Dockerfile is found before a release. The image is not pushed: publishing it is the release step.
+  image:
+    name: Docker image
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the ARM64 image
+        run: docker build --platform linux/arm64 -f deployment/Dockerfile -t ticketing-app:ci .
+
+      # The image starts with a read-only root file system and a writable /tmp, as in ECS. Without AWS settings the
+      # application stops at its configuration validation; reaching it proves that the JVM and the jar start.
+      - name: Check that the image starts
+        run: |
+          docker run --rm --read-only --tmpfs /tmp ticketing-app:ci > startup.log 2>&1 || true
+          cat startup.log | tail -n 20
+          grep -q "Starting MainApplication" startup.log

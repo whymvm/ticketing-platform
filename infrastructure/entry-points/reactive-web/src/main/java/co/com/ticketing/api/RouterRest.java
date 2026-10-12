@@ -2,9 +2,9 @@ package co.com.ticketing.api;
 
 import org.springdoc.core.annotations.RouterOperation;
 import org.springdoc.core.annotations.RouterOperations;
-import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
 import org.springframework.web.reactive.function.server.ServerResponse;
@@ -12,60 +12,85 @@ import org.springframework.web.reactive.function.server.ServerResponse;
 
 @Configuration
 public class RouterRest {
+
     @RouterOperations({
-            // V1 Endpoints
             @RouterOperation(
-                    path = "/api/v1/usecase/path",
-                    beanClass = HandlerV1.class,
-                    beanMethod = "listenGETUseCase",
-                    method = RequestMethod.GET
-            ),
-            @RouterOperation(
-                    path = "/api/v1/usecase/otherpath",
-                    beanClass = HandlerV1.class,
-                    beanMethod = "listenPOSTUseCase",
+                    path = ApiPaths.EVENTS,
+                    beanClass = EventHandler.class,
+                    beanMethod = "createEvent",
                     method = RequestMethod.POST
             ),
             @RouterOperation(
-                    path = "/api/v1/otherusercase/path",
-                    beanClass = HandlerV1.class,
-                    beanMethod = "listenGETOtherUseCase",
-                    method = RequestMethod.GET
-            ),
-            // V2 Endpoints
-            @RouterOperation(
-                    path = "/api/v2/usecase/path",
-                    beanClass = HandlerV2.class,
-                    beanMethod = "listenGETUseCase",
+                    path = ApiPaths.EVENT_BY_ID,
+                    beanClass = EventHandler.class,
+                    beanMethod = "retrieveEvent",
                     method = RequestMethod.GET
             ),
             @RouterOperation(
-                    path = "/api/v2/usecase/otherpath",
-                    beanClass = HandlerV2.class,
-                    beanMethod = "listenPOSTUseCase",
+                    path = ApiPaths.EVENT_AVAILABILITY,
+                    beanClass = EventHandler.class,
+                    beanMethod = "retrieveAvailability",
+                    method = RequestMethod.GET
+            ),
+            @RouterOperation(
+                    path = ApiPaths.EVENT_AVAILABILITY_STREAM,
+                    beanClass = EventHandler.class,
+                    beanMethod = "streamAvailability",
+                    method = RequestMethod.GET
+            ),
+            @RouterOperation(
+                    path = ApiPaths.EVENT_COMPLIMENTARY,
+                    beanClass = EventHandler.class,
+                    beanMethod = "issueComplimentary",
                     method = RequestMethod.POST
             ),
             @RouterOperation(
-                    path = "/api/v2/otherusercase/path",
-                    beanClass = HandlerV2.class,
-                    beanMethod = "listenGETOtherUseCase",
+                    path = ApiPaths.ORDERS,
+                    beanClass = OrderHandler.class,
+                    beanMethod = "placeOrder",
+                    method = RequestMethod.POST
+            ),
+            @RouterOperation(
+                    path = ApiPaths.ORDER_BY_ID,
+                    beanClass = OrderHandler.class,
+                    beanMethod = "retrieveOrder",
                     method = RequestMethod.GET
+            ),
+            @RouterOperation(
+                    path = ApiPaths.ORDER_CONFIRMATION,
+                    beanClass = OrderHandler.class,
+                    beanMethod = "confirmOrder",
+                    method = RequestMethod.POST
+            ),
+            @RouterOperation(
+                    path = ApiPaths.ORDER_HISTORY,
+                    beanClass = OrderHandler.class,
+                    beanMethod = "retrieveOrderHistory",
+                    method = RequestMethod.GET
+            ),
+            @RouterOperation(
+                    path = ApiPaths.ORDER_PAYMENT,
+                    beanClass = OrderHandler.class,
+                    beanMethod = "recordPayment",
+                    method = RequestMethod.POST
             )
     })
     @Bean
-    public RouterFunction<ServerResponse> routerFunction(HandlerV1 handlerV1, HandlerV2 handlerV2) {
+    public RouterFunction<ServerResponse> routerFunction(EventHandler eventHandler, OrderHandler orderHandler,
+                                                         ErrorHandler errorHandler) {
         return RouterFunctions
                 .route()
-                .path("/api/v1", builder -> builder
-                        .GET("/usecase/path", handlerV1::listenGETUseCase)
-                        .POST("/usecase/otherpath", handlerV1::listenPOSTUseCase)
-                        .GET("/otherusercase/path", handlerV1::listenGETOtherUseCase)
-                )
-                .path("/api/v2", builder -> builder
-                        .GET("/usecase/path", handlerV2::listenGETUseCase)
-                        .POST("/usecase/otherpath", handlerV2::listenPOSTUseCase)
-                        .GET("/otherusercase/path", handlerV2::listenGETOtherUseCase)
-                )
+                .POST(ApiPaths.EVENTS, eventHandler::createEvent)
+                .GET(ApiPaths.EVENT_BY_ID, eventHandler::retrieveEvent)
+                .GET(ApiPaths.EVENT_AVAILABILITY, eventHandler::retrieveAvailability)
+                .GET(ApiPaths.EVENT_AVAILABILITY_STREAM, eventHandler::streamAvailability)
+                .POST(ApiPaths.EVENT_COMPLIMENTARY, eventHandler::issueComplimentary)
+                .POST(ApiPaths.ORDERS, orderHandler::placeOrder)
+                .GET(ApiPaths.ORDER_BY_ID, orderHandler::retrieveOrder)
+                .POST(ApiPaths.ORDER_CONFIRMATION, orderHandler::confirmOrder)
+                .GET(ApiPaths.ORDER_HISTORY, orderHandler::retrieveOrderHistory)
+                .POST(ApiPaths.ORDER_PAYMENT, orderHandler::recordPayment)
+                .onError(Throwable.class, errorHandler::handle)
                 .build();
     }
 }

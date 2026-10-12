@@ -5,12 +5,10 @@ spring:
     name: "TicketingPlatform"
   devtools:
     add-properties: false
-  h2:
-    console:
-      enabled: true
-      path: "/h2"
-  profiles:
-    include: null
+  lifecycle:
+    # Time each shutdown phase gets to finish. The SQS listener needs up to its poll wait time (10 s) plus the
+    # processing of the messages that poll brings
+    timeout-per-shutdown-phase: 15s
 springdoc:
   swagger-ui.path: "/v3/swagger-ui.html"
   api-docs.path: "/v3/api-docs"
@@ -24,22 +22,38 @@ management:
     health:
       probes:
         enabled: true
+security:
+  # Key of the administrative operations (complimentary tickets). Empty means they are always denied
+  admin-api-key: ${ADMIN_API_KEY:}
 cors:
   allowed-origins: "http://localhost:4200,http://localhost:8080"
-entrypoint:
-  sqs:
-    region: "us-east-1"
-    endpoint: "http://localhost:4566"
-    queueUrl: "http://localhost:4566/000000000000/sample"
-    waitTimeSeconds: 20
-    maxNumberOfMessages: 10
-    visibilityTimeoutSeconds: 10
-    numberOfThreads: 1
+# Infrastructure values have no local defaults on purpose: docker-compose (or the deployment) provides them.
+# A missing variable resolves to blank and fails the @NotBlank validation at startup.
 aws:
+  region: ${AWS_REGION:us-east-1}
+  endpoint: ${AWS_ENDPOINT:} # only set for LocalStack; empty means real AWS
   dynamodb:
-    endpoint: "http://localhost:8000"
+    region: ${aws.region}
+    endpoint: ${aws.endpoint}
+    tables:
+      events: ${EVENTS_TABLE:}
+      orders: ${ORDERS_TABLE:}
+      orderHistory: ${ORDER_HISTORY_TABLE:}
+      idempotency: ${IDEMPOTENCY_TABLE:}
 adapter:
   sqs:
-    region: "us-east-1"
-    queueUrl: "http://localhost:4566/000000000000/sample"
-    endpoint: "http://localhost:4566 # For localstack only"
+    region: ${aws.region}
+    endpoint: ${aws.endpoint}
+    queues:
+      reservations: ${QUEUE_RESERVATIONS_URL:}
+entrypoint:
+  sqs:
+    region: ${aws.region}
+    endpoint: ${aws.endpoint}
+    queueUrl: ${QUEUE_RESERVATIONS_URL:}
+    # Long polling. On shutdown the listener waits for the open poll, so this also bounds how long stopping takes
+    waitTimeSeconds: 10
+    maxNumberOfMessages: 10
+    numberOfThreads: 1
+  scheduler:
+    expired-reservations-delay: ${EXPIRED_RESERVATIONS_DELAY:PT30S}
